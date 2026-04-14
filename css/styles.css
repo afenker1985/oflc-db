@@ -72,3 +72,205 @@ body {
     color: #666666;
     text-align: center;
 }
+
+.hymn-controls-row {
+	margin: 0 -5px 0 -5px;
+}
+
+.hymn-controls-row + .hymn-controls-row {
+	margin-top: 10px;
+}
+
+.hymn-controls button {
+	margin: 0 5px;
+	padding: 6px 12px;
+}
+
+.hymn-controls .add-hymn-button {
+	background-color: #dbeed3;
+	border: 1px solid #9dbc91;
+}
+
+.hymn-controls .update-hymn-button {
+	background-color: #f4d8a8;
+	border: 1px solid #c69d58;
+}
+
+.hymn-controls .delete-hymn-button,
+.delete-hymn-button {
+	background-color: #efc2c2;
+	border: 1px solid #b25b5b;
+}
+
+.hymn-controls,
+#hymn-content {
+	width: 100%;
+}
+
+.hymn-list-search {
+	margin-top: 12px;
+}
+
+.hymn-list-search label {
+	display: block;
+	margin-bottom: 4px;
+	font-weight: bold;
+}
+
+.hymn-list-search input {
+	width: 100%;
+	padding: 8px 10px;
+	box-sizing: border-box;
+}
+
+#hymn-content {
+	margin-top: 12px;
+}
+
+.hymn-section {
+	margin-top: 12px;
+}
+
+.hymn-section summary {
+	padding: 10px 12px;
+	border: 1px solid #000000;
+	background-color: #f5f5f5;
+	font-weight: bold;
+	cursor: pointer;
+}
+
+.hymn-section[open] summary {
+	border-bottom: none;
+}
+
+.hymn-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 8px;
+	border: 1px solid #000000;
+}
+
+.hymn-table th,
+.hymn-table td {
+	padding: 8px 12px;
+	text-align: left;
+}
+
+.hymn-table tr {
+	border-bottom: 1px solid #000000;
+}
+
+.hymn-table .active-column {
+	width: 1%;
+	white-space: nowrap;
+	text-align: center;
+}
+
+.hymn-table .hymn-column,
+.hymn-table .insert-column,
+.hymn-table .kernlieder-column {
+	width: 1%;
+	white-space: nowrap;
+}
+
+.hymn-table .insert-column,
+.hymn-table .active-column {
+	text-align: center;
+}
+
+.hymn-table .kernlieder-input {
+	width: 70px;
+	box-sizing: border-box;
+}
+
+.inactive-row {
+	background-color: #f6d6d6;
+}
+
+.hymn-search-panel,
+.hymn-form {
+	border: 1px solid #000000;
+	padding: 16px;
+	background-color: #f9f9f9;
+}
+
+.delete-warning-banner {
+	margin-bottom: 12px;
+	color: #b00000;
+	font-weight: bold;
+	font-size: 18px;
+}
+
+.hymn-search-panel {
+	margin-bottom: 12px;
+}
+
+.hymn-search-panel h4,
+.hymn-form h4 {
+	margin-top: 0;
+}
+
+.hymn-search-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px 16px;
+}
+
+.hymn-search-grid-single {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.hymn-search-grid label {
+	display: block;
+}
+
+.hymn-search-grid input {
+	display: block;
+	width: 100%;
+	margin-top: 4px;
+	padding: 6px 8px;
+	box-sizing: border-box;
+}
+
+.hymn-form-row {
+	display: grid;
+	margin-top: 12px;
+	align-items: end;
+}
+
+.hymn-form-row-primary {
+	grid-template-columns: 1fr 1fr 2fr;
+	gap: 12px 16px;
+}
+
+.hymn-form-row-secondary {
+	grid-template-columns: 2fr 2fr 90px 120px 90px;
+	gap: 12px 16px;
+}
+
+.hymn-form-row label {
+	display: block;
+}
+
+.hymn-form-row input[type="text"],
+.hymn-form-row input[type="number"] {
+	display: block;
+	width: 100%;
+	margin-top: 4px;
+	padding: 6px 8px;
+	box-sizing: border-box;
+}
+
+.hymn-form-checkbox-label {
+	display: block;
+	margin-bottom: 8px;
+}
+
+.hymn-form-actions {
+	margin-top: 16px;
+}
+
+.hymn-form-actions button {
+	margin-right: 10px;
+	padding: 6px 12px;
+}

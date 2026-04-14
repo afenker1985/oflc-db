@@ -1,6 +1,9 @@
 <?php 
 
-	$csv = array_map('str_getcsv', file(__DIR__ . '/../config/db.csv')); 
+	$csv = array_map(function ($line) {
+	    return str_getcsv($line, ',', '"', '\\');
+	}, file(__DIR__ . '/../config/db.csv'));
+
 	$header = array_shift($csv); 
 	$data = array_combine($header, $csv[0]);  
 	
