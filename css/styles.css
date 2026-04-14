@@ -91,6 +91,11 @@ body {
 	border: 1px solid #9dbc91;
 }
 
+.hymn-controls .clear-list-button {
+	background-color: #dddddd;
+	border: 1px solid #aaaaaa;
+}
+
 .hymn-controls .update-hymn-button {
 	background-color: #f4d8a8;
 	border: 1px solid #c69d58;
@@ -125,6 +130,7 @@ body {
 
 #hymn-content {
 	margin-top: 12px;
+	overflow-x: auto;
 }
 
 .hymn-section {
@@ -273,4 +279,41 @@ body {
 .hymn-form-actions button {
 	margin-right: 10px;
 	padding: 6px 12px;
+}
+
+@media (max-width: 768px) {
+	.container {
+		width: auto;
+		max-width: 96%;
+		margin: 12px auto;
+		padding: 16px 14px;
+	}
+
+	.main-nav ul li {
+		margin: 0 10px;
+	}
+
+	.hymn-controls-row {
+		display: flex;
+		flex-wrap: wrap;
+		margin: 0;
+	}
+
+	.hymn-controls button {
+		margin: 5px 5px 0 0;
+	}
+
+	.hymn-table {
+		min-width: 640px;
+	}
+
+	.hymn-search-grid,
+	.hymn-form-row-primary,
+	.hymn-form-row-secondary {
+		grid-template-columns: 1fr;
+	}
+
+	.hymn-form-actions button {
+		margin: 0 10px 10px 0;
+	}
 }
