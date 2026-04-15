@@ -2,6 +2,11 @@
 $page_title = 'Database Functions';
 include 'includes/header.php';
 include 'includes/db.php';
+
+$modern_js_path = __DIR__ . '/js/hymns-modern.js';
+$legacy_js_path = __DIR__ . '/js/hymns-legacy.js';
+$modern_js_version = file_exists($modern_js_path) ? filemtime($modern_js_path) : time();
+$legacy_js_version = file_exists($legacy_js_path) ? filemtime($legacy_js_path) : time();
 ?>
 
 <h3>Hymns</h3>
@@ -46,7 +51,9 @@ include 'includes/db.php';
 		Array.prototype.forEach
 	);
 	var script = document.createElement('script');
-	script.src = supportsModernJs ? 'js/hymns-modern.js' : 'js/hymns-legacy.js';
+	script.src = supportsModernJs
+		? 'js/hymns-modern.js?v=<?php echo rawurlencode((string) $modern_js_version); ?>'
+		: 'js/hymns-legacy.js?v=<?php echo rawurlencode((string) $legacy_js_version); ?>';
 	document.body.appendChild(script);
 }());
 </script>

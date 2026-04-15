@@ -1,5 +1,7 @@
 <?php
 $page_title = isset($page_title) ? $page_title : 'Hymn Database';
+$styles_path = __DIR__ . '/../css/styles.css';
+$styles_version = file_exists($styles_path) ? filemtime($styles_path) : time();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -7,7 +9,7 @@ $page_title = isset($page_title) ? $page_title : 'Hymn Database';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8'); ?></title>
-    <link rel="stylesheet" type="text/css" href="css/styles.css">
+    <link rel="stylesheet" type="text/css" href="css/styles.css?v=<?php echo rawurlencode((string) $styles_version); ?>">
 </head>
 <body>
     <div class="container">
