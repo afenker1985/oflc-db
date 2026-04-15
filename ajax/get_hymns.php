@@ -13,7 +13,7 @@ if ($filter === 'active') {
 }
 
 $stmt = $pdo->query("
-    SELECT id, hymnal, hymn_number, hymn_title, hymn_section, kernlieder_target, insert_use, is_active
+    SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, hymn_section, kernlieder_target, insert_use, is_active
     FROM hymn_db
     WHERE $where
     ORDER BY

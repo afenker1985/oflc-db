@@ -22,7 +22,6 @@ include 'includes/db.php';
 <div class="hymn-controls-row">
 <button class="clear-list-button" onclick="clearHymnList()">Clear List</button>
 <button class="add-hymn-button" onclick="showAddForm()">Add Hymn</button>
-<button class="update-hymn-button" onclick="showUpdateForm()">Update Hymn</button>
 <button class="delete-hymn-button" onclick="showDeleteForm()">Delete Hymn</button>
 </div>
 </div>

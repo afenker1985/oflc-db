@@ -3,6 +3,12 @@
 	var currentView = 'list';
 	var updateHymnSearchData = null;
 	var deleteHymnSearchData = null;
+	var structuralFields = {
+		hymnal: true,
+		hymn_number: true,
+		hymn_section: true,
+		is_active: true
+	};
 
 	function getElement(id) {
 		return document.getElementById(id);
@@ -23,6 +29,10 @@
 	function clearHymnList() {
 		hideHymnListArea();
 		getElement('hymn-content').innerHTML = '<p>Select a button above to load hymns or open a hymn form.</p>';
+	}
+
+	function hasClass(element, className) {
+		return !!(element && (' ' + element.className + ' ').indexOf(' ' + className + ' ') !== -1);
 	}
 
 	function encodeParams(params) {
@@ -72,6 +82,87 @@
 		return null;
 	}
 
+	function getDetailRow(hymnId) {
+		return document.querySelector('[data-hymn-detail-id="' + hymnId + '"]');
+	}
+
+	function buildHymnDisplayLabel(hymnId) {
+		var detailRow = getDetailRow(hymnId);
+		var hymnalInput;
+		var numberInput;
+		var insertInput;
+		var label;
+
+		if (!detailRow) {
+			return '';
+		}
+
+		hymnalInput = detailRow.querySelector('[data-field="hymnal"]');
+		numberInput = detailRow.querySelector('[data-field="hymn_number"]');
+		insertInput = detailRow.querySelector('[data-field="insert_use"]');
+		label = trimString((hymnalInput ? hymnalInput.value : '') + ' ' + (numberInput ? numberInput.value : ''));
+
+		if (insertInput && insertInput.checked) {
+			label += '*';
+		}
+
+		return label;
+	}
+
+	function syncSummaryDisplay(hymnId) {
+		var displayTarget = document.querySelector('[data-hymn-display-id="' + hymnId + '"]');
+		var titleTarget = document.querySelector('[data-hymn-title-id="' + hymnId + '"]');
+		var detailRow = getDetailRow(hymnId);
+		var titleInput = detailRow ? detailRow.querySelector('[data-field="hymn_title"]') : null;
+
+		if (displayTarget) {
+			displayTarget.innerHTML = '';
+			displayTarget.appendChild(document.createTextNode(buildHymnDisplayLabel(hymnId)));
+		}
+
+		if (titleTarget && titleInput) {
+			titleTarget.innerHTML = '';
+			titleTarget.appendChild(document.createTextNode(trimString(titleInput.value)));
+		}
+	}
+
+	function setSavingState(input, isSaving) {
+		if (!input) {
+			return;
+		}
+
+		input.disabled = isSaving;
+		if (isSaving) {
+			if (!hasClass(input, 'is-saving')) {
+				input.className += ' is-saving';
+			}
+		} else {
+			input.className = input.className.replace(/\bis-saving\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+		}
+	}
+
+	function toggleHymnDetail(toggleButton) {
+		var hymnId = toggleButton.getAttribute('data-hymn-id');
+		var detailRow = getDetailRow(hymnId);
+		var summaryRow = closestByClass(toggleButton, 'hymn-summary-row');
+		var isExpanded = toggleButton.getAttribute('aria-expanded') === 'true';
+
+		if (!detailRow) {
+			return;
+		}
+
+		toggleButton.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+		detailRow.style.display = isExpanded ? 'none' : '';
+
+		if (summaryRow) {
+			if (isExpanded) {
+				summaryRow.className = summaryRow.className.replace(/\bis-expanded\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+			} else if (!hasClass(summaryRow, 'is-expanded')) {
+				summaryRow.className += ' is-expanded';
+			}
+		}
+	}
+
 	function loadHymns(filter, view) {
 		if (typeof view === 'undefined') {
 			view = 'list';
@@ -118,14 +209,31 @@
 			for (j = 0; j < rows.length; j += 1) {
 				var row = rows[j];
 				var matches;
+				var hymnId;
+				var detailRow;
+				var toggleButton;
+				var isExpanded;
+				var rowText;
 
 				if (j === 0) {
 					row.style.display = '';
 					continue;
 				}
 
-				matches = query === '' || row.textContent.toLowerCase().indexOf(query) !== -1;
+				if (hasClass(row, 'hymn-detail-row')) {
+					continue;
+				}
+
+				hymnId = row.getAttribute('data-hymn-id');
+				detailRow = hymnId ? getDetailRow(hymnId) : null;
+				toggleButton = row.querySelector('.hymn-expand-toggle');
+				isExpanded = toggleButton && toggleButton.getAttribute('aria-expanded') === 'true';
+				rowText = row.textContent.toLowerCase() + ' ' + (detailRow ? detailRow.textContent.toLowerCase() : '');
+				matches = query === '' || rowText.indexOf(query) !== -1;
 				row.style.display = matches ? '' : 'none';
+				if (detailRow) {
+					detailRow.style.display = matches && isExpanded ? '' : 'none';
+				}
 				if (matches) {
 					visibleRows += 1;
 				}
@@ -331,53 +439,53 @@
 		});
 	}
 
-	function updateHymnCheckbox(checkbox, fieldName) {
-		var hymnId = checkbox.getAttribute('data-hymn-id');
-		var fieldValue = checkbox.checked ? 1 : 0;
-		var originalState = !checkbox.checked;
+	function saveInlineHymnEdit(input) {
+		var hymnId;
+		var fieldName;
+		var originalValue;
+		var newValue;
 
-		checkbox.disabled = true;
-		updateHymnField(fieldName, fieldValue, hymnId, function (error) {
-			if (error) {
-				if (window.console && window.console.error) {
-					window.console.error('Error updating hymn:', error);
-				}
-				checkbox.checked = originalState;
-				alert('Failed to update hymn.');
-				checkbox.disabled = false;
-				return;
-			}
-
-			loadHymns(currentFilter, currentView);
-		});
-	}
-
-	function updateKernlieder(input) {
-		var hymnId = input.getAttribute('data-hymn-id');
-		var originalValue = input.getAttribute('data-original-value');
-		var newValue = trimString(input.value);
-
-		if (originalValue === null) {
-			originalValue = input.defaultValue;
+		if (!hasClass(input, 'hymn-edit-input')) {
+			return;
 		}
+
+		hymnId = input.getAttribute('data-hymn-id');
+		fieldName = input.getAttribute('data-field');
+		originalValue = input.getAttribute('data-original-value');
+		newValue = input.type === 'checkbox' ? (input.checked ? '1' : '0') : trimString(input.value);
 
 		if (newValue === originalValue) {
 			return;
 		}
 
-		input.disabled = true;
-		updateHymnField('kernlieder_target', newValue, hymnId, function (error) {
+		setSavingState(input, true);
+		updateHymnField(fieldName, newValue, hymnId, function (error) {
 			if (error) {
 				if (window.console && window.console.error) {
 					window.console.error('Error updating hymn:', error);
 				}
-				input.value = originalValue;
-				alert('Failed to update Kernlieder.');
-			} else {
-				input.setAttribute('data-original-value', newValue);
+
+				if (input.type === 'checkbox') {
+					input.checked = originalValue === '1';
+				} else {
+					input.value = originalValue;
+				}
+
+				alert(error.message || 'Failed to update hymn.');
+				setSavingState(input, false);
+				return;
 			}
 
-			input.disabled = false;
+			input.setAttribute('data-original-value', newValue);
+			syncSummaryDisplay(hymnId);
+
+			if (structuralFields[fieldName]) {
+				loadHymns(currentFilter, currentView);
+				return;
+			}
+
+			applyHymnListFilter();
+			setSavingState(input, false);
 		});
 	}
 
@@ -408,16 +516,8 @@
 	function handleDocumentChange(event) {
 		var target = event.target || event.srcElement;
 
-		if (target && (' ' + target.className + ' ').indexOf(' active-toggle ') !== -1) {
-			updateHymnCheckbox(target, 'is_active');
-		}
-
-		if (target && (' ' + target.className + ' ').indexOf(' insert-toggle ') !== -1) {
-			updateHymnCheckbox(target, 'insert_use');
-		}
-
-		if (target && (' ' + target.className + ' ').indexOf(' kernlieder-input ') !== -1) {
-			updateKernlieder(target);
+		if (hasClass(target, 'hymn-edit-input')) {
+			saveInlineHymnEdit(target);
 		}
 
 		handleHymnSearchSelection(event);
@@ -435,8 +535,26 @@
 
 	function handleFocusIn(event) {
 		var target = event.target || event.srcElement;
-		if (target && (' ' + target.className + ' ').indexOf(' kernlieder-input ') !== -1) {
+		if (hasClass(target, 'hymn-edit-input')) {
 			target.setAttribute('data-original-value', trimString(target.value));
+		}
+	}
+
+	function handleDocumentClick(event) {
+		var target = event.target || event.srcElement;
+		var summaryRow = closestByClass(target, 'hymn-summary-row');
+		var toggleButton = closestByClass(target, 'hymn-expand-toggle');
+
+		if (summaryRow && !closestByClass(target, 'active-column') && !hasClass(target, 'hymn-edit-input')) {
+			toggleButton = summaryRow.querySelector('.hymn-expand-toggle');
+			if (toggleButton) {
+				toggleHymnDetail(toggleButton);
+			}
+			return;
+		}
+
+		if (toggleButton) {
+			toggleHymnDetail(toggleButton);
 		}
 	}
 
@@ -487,6 +605,7 @@
 	}
 
 	function init() {
+		document.addEventListener('click', handleDocumentClick, false);
 		document.addEventListener('input', handleDocumentInput, false);
 		document.addEventListener('change', handleDocumentChange, false);
 		document.addEventListener('focusin', handleFocusIn, false);
@@ -496,10 +615,8 @@
 
 	window.loadHymns = loadHymns;
 	window.showAddForm = showAddForm;
-	window.showUpdateForm = showUpdateForm;
 	window.showDeleteForm = showDeleteForm;
 	window.clearHymnList = clearHymnList;
-	window.submitUpdateForm = submitUpdateForm;
 	window.submitDeleteForm = submitDeleteForm;
 	window.deleteSelectedHymn = deleteSelectedHymn;
 

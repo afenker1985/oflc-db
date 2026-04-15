@@ -96,11 +96,6 @@ body {
 	border: 1px solid #aaaaaa;
 }
 
-.hymn-controls .update-hymn-button {
-	background-color: #f4d8a8;
-	border: 1px solid #c69d58;
-}
-
 .hymn-controls .delete-hymn-button,
 .delete-hymn-button {
 	background-color: #efc2c2;
@@ -187,6 +182,79 @@ body {
 .hymn-table .kernlieder-input {
 	width: 70px;
 	box-sizing: border-box;
+}
+
+.hymn-summary-row {
+	cursor: pointer;
+}
+
+.hymn-summary-row:hover {
+	background-color: #f2f2f2;
+}
+
+.hymn-summary-row.inactive-row:hover {
+	background-color: #efcaca;
+}
+
+.hymn-summary-row td input,
+.hymn-summary-row td button,
+.hymn-detail-row input,
+.hymn-detail-row button,
+.hymn-detail-row label {
+	cursor: auto;
+}
+
+.hymn-expand-toggle {
+	display: inline-block;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	pointer-events: none;
+}
+
+.hymn-summary-row.is-expanded {
+	background-color: #eef4ff;
+}
+
+.hymn-detail-row {
+	background-color: #f8f8f8;
+}
+
+.hymn-detail-row td {
+	padding-top: 14px;
+	padding-bottom: 14px;
+}
+
+.hymn-detail-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px 16px;
+}
+
+.hymn-detail-grid label {
+	display: block;
+}
+
+.hymn-detail-grid input[type="text"],
+.hymn-detail-grid input[type="number"] {
+	display: block;
+	width: 100%;
+	margin-top: 4px;
+	padding: 6px 8px;
+	box-sizing: border-box;
+}
+
+.hymn-detail-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.hymn-edit-input.is-saving {
+	background-color: #fff8d6;
 }
 
 .inactive-row {
@@ -308,6 +376,7 @@ body {
 	}
 
 	.hymn-search-grid,
+	.hymn-detail-grid,
 	.hymn-form-row-primary,
 	.hymn-form-row-secondary {
 		grid-template-columns: 1fr;

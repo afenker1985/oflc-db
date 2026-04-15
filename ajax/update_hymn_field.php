@@ -23,6 +23,11 @@ $allowedFields = [
     'is_active' => 'checkbox',
     'insert_use' => 'checkbox',
     'kernlieder_target' => 'number',
+    'hymnal' => 'required_string',
+    'hymn_number' => 'required_string',
+    'hymn_title' => 'required_string',
+    'hymn_tune' => 'optional_string',
+    'hymn_section' => 'optional_string',
 ];
 
 if (!isset($allowedFields[$field])) {
@@ -49,6 +54,21 @@ if ($allowedFields[$field] === 'number') {
     }
 
     $value = (int) $value;
+}
+
+if ($allowedFields[$field] === 'required_string') {
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'This field is required.']);
+        exit;
+    }
+}
+
+if ($allowedFields[$field] === 'optional_string') {
+    $value = trim((string) $value);
+    $value = $value === '' ? null : $value;
 }
 
 $stmt = $pdo->prepare("
