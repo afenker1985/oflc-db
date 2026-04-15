@@ -11,6 +11,7 @@ config/db.csv
 
 *.log
 *.tmp
+tmp/
 
 #node
 node_modules/
