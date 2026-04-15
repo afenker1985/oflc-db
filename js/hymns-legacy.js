@@ -152,7 +152,18 @@
 		}
 
 		toggleButton.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
-		detailRow.style.display = isExpanded ? 'none' : '';
+		detailRow.style.display = isExpanded ? 'none' : 'table-row';
+		if (isExpanded) {
+			detailRow.className = detailRow.className.replace(/\bis-expanded\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+			if (!hasClass(detailRow, 'is-collapsed')) {
+				detailRow.className += ' is-collapsed';
+			}
+		} else {
+			detailRow.className = detailRow.className.replace(/\bis-collapsed\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+			if (!hasClass(detailRow, 'is-expanded')) {
+				detailRow.className += ' is-expanded';
+			}
+		}
 
 		if (summaryRow) {
 			if (isExpanded) {
@@ -232,7 +243,18 @@
 				matches = query === '' || rowText.indexOf(query) !== -1;
 				row.style.display = matches ? '' : 'none';
 				if (detailRow) {
-					detailRow.style.display = matches && isExpanded ? '' : 'none';
+					detailRow.style.display = matches && isExpanded ? 'table-row' : 'none';
+					if (matches && isExpanded) {
+						detailRow.className = detailRow.className.replace(/\bis-collapsed\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+						if (!hasClass(detailRow, 'is-expanded')) {
+							detailRow.className += ' is-expanded';
+						}
+					} else {
+						detailRow.className = detailRow.className.replace(/\bis-expanded\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+						if (!hasClass(detailRow, 'is-collapsed')) {
+							detailRow.className += ' is-collapsed';
+						}
+					}
 				}
 				if (matches) {
 					visibleRows += 1;

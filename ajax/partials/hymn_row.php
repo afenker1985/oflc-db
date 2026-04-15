@@ -52,7 +52,7 @@ $hymnSectionValue = htmlspecialchars((string) $hymn['hymn_section']);
     </td>
     */ ?>
 </tr>
-<tr class="hymn-detail-row" data-hymn-detail-id="<?= $hymnId ?>" style="display: none;">
+<tr class="hymn-detail-row is-collapsed" data-hymn-detail-id="<?= $hymnId ?>">
     <td colspan="4">
         <div class="hymn-detail-grid">
             <label>

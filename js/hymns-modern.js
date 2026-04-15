@@ -118,7 +118,9 @@
 		}
 
 		toggleButton.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
-		detailRow.style.display = isExpanded ? 'none' : '';
+		detailRow.classList.toggle('is-expanded', !isExpanded);
+		detailRow.classList.toggle('is-collapsed', isExpanded);
+		detailRow.style.display = isExpanded ? 'none' : 'table-row';
 
 		if (summaryRow) {
 			summaryRow.classList.toggle('is-expanded', !isExpanded);
@@ -172,7 +174,9 @@
 
 				row.style.display = matches ? '' : 'none';
 				if (detailRow) {
-					detailRow.style.display = matches && isExpanded ? '' : 'none';
+					detailRow.classList.toggle('is-expanded', matches && isExpanded);
+					detailRow.classList.toggle('is-collapsed', !(matches && isExpanded));
+					detailRow.style.display = matches && isExpanded ? 'table-row' : 'none';
 				}
 				if (matches) {
 					visibleRows += 1;

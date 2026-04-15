@@ -220,7 +220,12 @@ body {
 }
 
 .hymn-detail-row {
+	display: none;
 	background-color: #f8f8f8;
+}
+
+.hymn-detail-row.is-expanded {
+	display: table-row;
 }
 
 .hymn-detail-row td {
@@ -229,13 +234,16 @@ body {
 }
 
 .hymn-detail-grid {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 12px 16px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	margin: 0 -8px -12px 0;
 }
 
 .hymn-detail-grid label {
 	display: block;
+	flex: 1 1 220px;
+	margin: 0 8px 12px 0;
 }
 
 .hymn-detail-grid input[type="text"],
@@ -251,6 +259,20 @@ body {
 	display: flex;
 	align-items: center;
 	gap: 10px;
+	flex: 0 0 auto;
+}
+
+@supports (display: grid) {
+	.hymn-detail-grid {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 12px 16px;
+		margin: 0;
+	}
+
+	.hymn-detail-grid label {
+		margin: 0;
+	}
 }
 
 .hymn-edit-input.is-saving {
@@ -380,6 +402,17 @@ body {
 	.hymn-form-row-primary,
 	.hymn-form-row-secondary {
 		grid-template-columns: 1fr;
+	}
+
+	.hymn-detail-grid {
+		display: block;
+		margin: 0;
+	}
+
+	.hymn-detail-grid label,
+	.hymn-detail-checkbox {
+		display: block;
+		margin: 0 0 12px 0;
 	}
 
 	.hymn-form-actions button {
