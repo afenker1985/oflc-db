@@ -26,7 +26,15 @@
 		getElement('hymn-list-search').style.display = 'none';
 	}
 
+	function resetHymnListFilter() {
+		var filterInput = getElement('hymn-list-filter');
+		if (filterInput) {
+			filterInput.value = '';
+		}
+	}
+
 	function clearHymnList() {
+		resetHymnListFilter();
 		hideHymnListArea();
 		getElement('hymn-content').innerHTML = '<p>Select a button above to load hymns or open a hymn form.</p>';
 	}
@@ -179,6 +187,9 @@
 			view = 'list';
 		}
 
+		if (currentFilter !== filter || currentView !== view) {
+			resetHymnListFilter();
+		}
 		currentFilter = filter;
 		currentView = view;
 
@@ -269,6 +280,7 @@
 	}
 
 	function showAddForm() {
+		resetHymnListFilter();
 		hideHymnListArea();
 		xhrRequest('GET', 'ajax/get_add_hymn_form.php', null, null, function (error, responseText) {
 			if (error) {
@@ -294,6 +306,7 @@
 	}
 
 	function showUpdateForm() {
+		resetHymnListFilter();
 		hideHymnListArea();
 		xhrRequest('GET', 'ajax/get_update_hymn_form.php', null, null, function (error, responseText) {
 			if (error) {
@@ -310,6 +323,7 @@
 	}
 
 	function showDeleteForm() {
+		resetHymnListFilter();
 		hideHymnListArea();
 		xhrRequest('GET', 'ajax/get_delete_hymn_form.php', null, null, function (error, responseText) {
 			if (error) {

@@ -22,7 +22,15 @@
 		getElement('hymn-list-search').style.display = 'none';
 	}
 
+	function resetHymnListFilter() {
+		const filterInput = getElement('hymn-list-filter');
+		if (filterInput) {
+			filterInput.value = '';
+		}
+	}
+
 	function clearHymnList() {
+		resetHymnListFilter();
 		hideHymnListArea();
 		getElement('hymn-content').innerHTML = '<p>Select a button above to load hymns or open a hymn form.</p>';
 	}
@@ -129,6 +137,9 @@
 
 	async function loadHymns(filter, view = 'list') {
 		try {
+			if (currentFilter !== filter || currentView !== view) {
+				resetHymnListFilter();
+			}
 			currentFilter = filter;
 			currentView = view;
 			const html = await fetchText('ajax/get_hymns.php?filter=' + encodeURIComponent(filter) + '&view=' + encodeURIComponent(view));
@@ -192,6 +203,7 @@
 
 	async function showAddForm() {
 		try {
+			resetHymnListFilter();
 			hideHymnListArea();
 			const html = await fetchText('ajax/get_add_hymn_form.php');
 			getElement('hymn-content').innerHTML = html;
@@ -213,6 +225,7 @@
 
 	async function showUpdateForm() {
 		try {
+			resetHymnListFilter();
 			hideHymnListArea();
 			const html = await fetchText('ajax/get_update_hymn_form.php');
 			getElement('hymn-content').innerHTML = html;
@@ -225,6 +238,7 @@
 
 	async function showDeleteForm() {
 		try {
+			resetHymnListFilter();
 			hideHymnListArea();
 			const html = await fetchText('ajax/get_delete_hymn_form.php');
 			getElement('hymn-content').innerHTML = html;
