@@ -105,7 +105,7 @@ function oflc_format_sunday_list_label(array $entry, array $observance): string
 function oflc_get_liturgical_color_display($color): string
 {
     $color = trim((string) $color);
-    return $color === '' ? 'NOT SET' : strtoupper($color);
+    return $color === '' ? '' : strtoupper($color);
 }
 
 function oflc_get_liturgical_color_text_class($color): string
@@ -384,7 +384,7 @@ $request_data = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['clear_service'])) {
         $_SESSION[$form_state_key] = [
-            'service_date' => date('Y-m-d'),
+            'service_date' => '',
         ];
         header('Location: planning.php', true, 303);
         exit;
@@ -410,7 +410,7 @@ if ($request_data === []) {
     unset($_SESSION[$form_state_key]);
 }
 
-$selected_date = oflc_request_value($request_data, 'service_date', date('Y-m-d'));
+$selected_date = oflc_request_value($request_data, 'service_date', '');
 $liturgical_window = null;
 $selected_movable_matches = [];
 $selected_fixed_matches = [];
@@ -429,7 +429,7 @@ $selected_option_is_sunday = $selected_service_date_obj instanceof DateTimeImmut
 $selected_option_previous_thursday_label = null;
 $logic_columns_ready = false;
 $date_error = null;
-$default_reading_set_year = (int) date('Y', strtotime($selected_date));
+$default_reading_set_year = $selected_date !== '' ? (int) date('Y', strtotime($selected_date)) : (int) date('Y');
 $default_reading_set_index = $default_reading_set_year % 2 === 0 ? 1 : 0;
 $hymn_suggestions = oflc_fetch_hymn_suggestions($pdo);
 $service_settings = oflc_fetch_service_settings($pdo);
