@@ -1,7 +1,10 @@
 <?php
 $page_title = isset($page_title) ? $page_title : 'Hymn Database';
-$styles_path = __DIR__ . '/../css/styles.css';
-$styles_version = file_exists($styles_path) ? filemtime($styles_path) : time();
+$stylesheet_files = [
+    'css/main.css',
+    'css/hymns.css',
+    'css/services.css',
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -9,7 +12,13 @@ $styles_version = file_exists($styles_path) ? filemtime($styles_path) : time();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8'); ?></title>
-    <link rel="stylesheet" type="text/css" href="css/styles.css?v=<?php echo rawurlencode((string) $styles_version); ?>">
+    <?php foreach ($stylesheet_files as $stylesheet_file): ?>
+        <?php
+        $stylesheet_path = __DIR__ . '/../' . $stylesheet_file;
+        $stylesheet_version = file_exists($stylesheet_path) ? filemtime($stylesheet_path) : time();
+        ?>
+        <link rel="stylesheet" type="text/css" href="<?php echo htmlspecialchars($stylesheet_file, ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo rawurlencode((string) $stylesheet_version); ?>">
+    <?php endforeach; ?>
 </head>
 <body>
     <div class="container">
@@ -22,7 +31,7 @@ $styles_version = file_exists($styles_path) ? filemtime($styles_path) : time();
             <ul>
                 <li><a href="/"><img src="home.png" width="25px"></a></li>
                 <li><a href="hymns.php">Hymns</a></li>
-                <li><a href="planning.php">Service Planning</a></li>
+                <li><a href="planning.php">Add a Service</a></li>
                 <li><a href="review.php">Service Review</a></li>
                 <li><a href="schedule.php">Service Schedule</a></li>
             </ul>

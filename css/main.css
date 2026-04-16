@@ -1,0 +1,87 @@
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background-color: #3A64AF;
+}
+
+.container {
+    width: 80%;
+    min-width: 950px;
+    margin: 40px auto;
+    background-color: #FFFFFF;
+    padding: 20px 30px;
+    box-sizing: border-box;
+}
+
+.site-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.site-header h1 {
+    margin: 0;
+    font-size: 28px;
+}
+
+.site-header h2 {
+    margin: 6px 0 0 0;
+    font-size: 17px;
+    font-weight: normal;
+    color: #555555;
+}
+
+.main-nav {
+    border-top: 1px solid #CCCCCC;
+    border-bottom: 1px solid #CCCCCC;
+    margin: 20px 0;
+}
+
+.main-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+}
+
+.main-nav ul li {
+    display: inline-block;
+    margin: 0 18px;
+}
+
+.main-nav ul li a {
+    display: block;
+    padding: 12px 0;
+    text-decoration: none;
+    color: #3A64AF;
+    font-weight: bold;
+}
+
+.main-nav ul li a:hover {
+    text-decoration: underline;
+}
+
+.content {
+    min-height: 200px;
+}
+
+.footer {
+    margin-top: 30px;
+    padding-top: 15px;
+    border-top: 1px solid #CCCCCC;
+    font-size: 13px;
+    color: #666666;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .container {
+        width: auto;
+        max-width: 96%;
+        margin: 12px auto;
+        padding: 16px 14px;
+    }
+
+    .main-nav ul li {
+        margin: 0 10px;
+    }
+}

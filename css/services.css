@@ -1,0 +1,412 @@
+.planning-form {
+    margin-top: 20px;
+}
+
+.planning-form label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: bold;
+}
+
+.planning-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.planning-form-row input,
+.planning-form-row button {
+    padding: 8px 10px;
+    font: inherit;
+}
+
+.planning-form-row button {
+    border: 1px solid #335a9f;
+    background-color: #3A64AF;
+    color: #FFFFFF;
+    cursor: pointer;
+}
+
+.service-card {
+    margin-top: 20px;
+    border: 2px solid #1d1d1d;
+    background-color: #fbfbfb;
+}
+
+.service-card-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr 1.15fr 0.85fr;
+    align-items: stretch;
+}
+
+.service-card-panel {
+    height: 420px;
+    padding: 14px 18px;
+    border-right: 2px solid #1d1d1d;
+    box-sizing: border-box;
+    font-family: Georgia, "Times New Roman", serif;
+    color: inherit;
+    overflow-y: auto;
+}
+
+.service-card-panel:last-child {
+    border-right: none;
+}
+
+.service-card-display-date,
+.service-card-liturgical-day,
+.service-card-readings,
+.service-card-hymns,
+.service-card-notes,
+.service-card-meta {
+    font-size: 16px;
+    line-height: 1.4;
+    font-weight: normal;
+}
+
+.service-card-date-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.service-card-panel:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.service-card-panel:first-child .service-card-display-date,
+.service-card-panel:first-child .service-card-liturgical-day,
+.service-card-panel:first-child .service-card-meta,
+.service-card-panel:first-child .service-card-select,
+.service-card-panel:first-child .service-card-date-row {
+    margin-top: 0;
+}
+
+.service-card-readings,
+.service-card-hymns {
+    margin-top: 10px;
+}
+
+.service-card-meta {
+    font-size: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.service-card-label {
+    display: block;
+    margin-top: 8px;
+    margin-bottom: 6px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #444444;
+}
+
+.service-card-select,
+.service-card-text,
+.service-card-hymn-row input {
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid #1d1d1d;
+    box-sizing: border-box;
+    font: 15px Georgia, "Times New Roman", serif;
+    color: #6f5200;
+    background-color: #ffffff;
+}
+
+.service-card select,
+.service-card input,
+.service-card button {
+    color: #222222;
+}
+
+.service-card-checkbox {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font: 14px Arial, Helvetica, sans-serif;
+    line-height: 1.4;
+    color: #444444;
+}
+
+.service-card-checkbox input {
+    margin-top: 2px;
+}
+
+.service-card-readings div {
+    white-space: pre-line;
+}
+
+.service-card-readings {
+    line-height: 1.2;
+}
+
+.service-card-reading-set + .service-card-reading-set {
+    margin-top: 18px;
+    padding-top: 12px;
+}
+
+.service-card-reading-set {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.service-card-reading-set > div,
+.service-card-reading-set > label {
+    margin: 0;
+    padding: 0;
+}
+
+.service-card-reading-set > div {
+    padding-left: 28px;
+}
+
+.service-card-reading-psalm {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    line-height: 1.05;
+}
+
+.service-card-reading-psalm input {
+    margin-top: 2px;
+    pointer-events: none;
+}
+
+.service-card-hymn-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.service-card-hymn-row + .service-card-hymn-row {
+    margin-top: 8px;
+}
+
+.service-card-hymn-row .service-card-hymn-lookup {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.service-card-hymn-inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+}
+
+.service-card-hymn-inline-toggle input {
+    margin: 0;
+}
+
+.service-card-hymn-instruction {
+    margin-bottom: 8px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-style: italic;
+    color: #b13232;
+}
+
+.service-card-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.service-card-color-dark {
+    color: #222222;
+}
+
+.service-card-color-gold {
+    color: #c89200;
+}
+
+.service-card-color-green {
+    color: #2d6f2d;
+}
+
+.service-card-color-violet {
+    color: #6d3c90;
+}
+
+.service-card-color-blue {
+    color: #2f5fa4;
+}
+
+.service-card-color-rose {
+    color: #b7557a;
+}
+
+.service-card-color-red {
+    color: #b13232;
+}
+
+.service-card-color-black {
+    color: #111111;
+}
+
+.planning-result {
+    margin-top: 20px;
+    padding: 18px 20px;
+    border: 1px solid #cbd6ea;
+    background-color: #f5f8ff;
+}
+
+.planning-result h4 {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.planning-option-list {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.planning-option-list li + li {
+    margin-top: 8px;
+}
+
+.planning-match-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+}
+
+.planning-match-columns h5 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.planning-inline-list {
+    margin-top: 6px;
+    padding-left: 14px;
+    color: #444444;
+}
+
+.planning-inline-list div + div {
+    margin-top: 4px;
+}
+
+.planning-result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px 18px;
+    margin: 0;
+}
+
+.planning-result-grid dt {
+    font-weight: bold;
+}
+
+.planning-result-grid dd {
+    margin: 4px 0 0 0;
+}
+
+.planning-error {
+    margin-top: 16px;
+    padding: 10px 12px;
+}
+
+.planning-error {
+    background-color: #f8dfdf;
+    border-left: 4px solid #b25b5b;
+}
+
+.planning-table-wrap {
+    margin-top: 14px;
+    overflow-x: auto;
+}
+
+.planning-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #ffffff;
+}
+
+.planning-table th,
+.planning-table td {
+    padding: 8px 10px;
+    border: 1px solid #d3dceb;
+    text-align: left;
+}
+
+.planning-table thead th {
+    background-color: #eaf0fb;
+}
+
+.planning-table .is-selected td,
+tr.is-selected td {
+    background-color: #fff8d9;
+}
+
+.service-card-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 14px 0 0;
+}
+
+.service-card-actions button {
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+}
+
+@media (max-width: 980px) {
+    .service-card-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .service-card-panel:nth-child(2n) {
+        border-right: none;
+    }
+
+    .service-card-panel:nth-child(n + 3) {
+        border-top: 2px solid #1d1d1d;
+    }
+}
+
+@media (max-width: 640px) {
+    .service-card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .service-card-panel {
+        height: auto;
+        min-height: 280px;
+        border-right: none;
+        border-top: 2px solid #1d1d1d;
+    }
+
+    .service-card-panel:first-child {
+        border-top: none;
+    }
+
+    .service-card-display-date,
+    .service-card-liturgical-day,
+    .service-card-readings,
+    .service-card-hymns,
+    .service-card-notes,
+    .service-card-meta {
+        font-size: 16px;
+    }
+
+    .service-card-date-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
