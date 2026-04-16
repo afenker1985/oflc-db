@@ -603,6 +603,7 @@ if ($selected_option_detail !== null) {
 include 'includes/header.php';
 ?>
 
+<div id="planner-root">
 <h3>Add a Service</h3>
 
 <p>Use this form to add a service to the schedule.</p>
@@ -836,6 +837,7 @@ include 'includes/header.php';
     </div>
     <?php endif; ?>
 <?php endif; ?>
+</div>
 
 <script>
 function oflcResetReadingSelection(form) {
@@ -848,6 +850,7 @@ function oflcResetReadingSelection(form) {
 
 function oflcSubmitPlannerPreview(form, resetReadings) {
     var autoPreview = form.querySelector('#auto-preview-flag');
+    var formData;
 
     if (resetReadings) {
         oflcResetReadingSelection(form);
@@ -857,11 +860,54 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
         autoPreview.value = '1';
     }
 
-    form.submit();
+    formData = new FormData(form);
+
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'same-origin'
+    })
+        .then(function (response) {
+            return response.text();
+        })
+        .then(function (html) {
+            var parser = new DOMParser();
+            var documentFragment = parser.parseFromString(html, 'text/html');
+            var nextRoot = documentFragment.getElementById('planner-root');
+            var currentRoot = document.getElementById('planner-root');
+
+            if (!nextRoot || !currentRoot) {
+                window.location.reload();
+                return;
+            }
+
+            currentRoot.replaceWith(nextRoot);
+            if (typeof window.oflcInitializePlannerUI === 'function') {
+                window.oflcInitializePlannerUI(document);
+            }
+        })
+        .catch(function () {
+            window.location.reload();
+        });
 }
 
-(function () {
-    var labels = document.querySelectorAll('.service-card-reading-psalm');
+window.oflcInitializePlannerUI = function (root) {
+    var labels = root.querySelectorAll('.service-card-reading-psalm');
+    var select = root.querySelector('#service_setting');
+    var summary = root.querySelector('#service-setting-summary');
+    var hymnPane = root.querySelector('#service-card-hymns');
+    var hymnSuggestionsId = 'hymn-options';
+    var hymnDefinitionsByService = <?php echo json_encode($hymn_field_definitions_by_service, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+    var hymnState = <?php
+        echo json_encode([
+            'hymns' => array_map('strval', $selected_hymns),
+            'opening_processional' => isset($request_data['opening_processional']),
+            'closing_recessional' => isset($request_data['closing_recessional']),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    ?>;
 
     Array.prototype.forEach.call(labels, function (label) {
         var radio = label.querySelector('.service-card-reading-radio');
@@ -883,21 +929,6 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
             delete radio.dataset.wasChecked;
         });
     });
-}());
-
-(function () {
-    var select = document.getElementById('service_setting');
-    var summary = document.getElementById('service-setting-summary');
-    var hymnPane = document.getElementById('service-card-hymns');
-    var hymnSuggestionsId = 'hymn-options';
-    var hymnDefinitionsByService = <?php echo json_encode($hymn_field_definitions_by_service, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-    var hymnState = <?php
-        echo json_encode([
-            'hymns' => array_map('strval', $selected_hymns),
-            'opening_processional' => isset($request_data['opening_processional']),
-            'closing_recessional' => isset($request_data['closing_recessional']),
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    ?>;
 
     if (!select || !summary || !hymnPane) {
         return;
@@ -1022,7 +1053,9 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
     bindHymnLookupBehavior(document);
     updateSummary();
     renderHymnPane(select.value);
-}());
+};
+
+window.oflcInitializePlannerUI(document);
 </script>
 
 <?php include 'includes/footer.php'; ?>
