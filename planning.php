@@ -618,7 +618,7 @@ include 'includes/header.php';
 
 <?php if ($date_error !== null): ?>
     <p class="planning-error"><?php echo htmlspecialchars($date_error, ENT_QUOTES, 'UTF-8'); ?></p>
-<?php elseif ($liturgical_window !== null): ?>
+<?php else: ?>
     <form id="add-service-form" class="service-card <?php echo htmlspecialchars($service_card_color_class, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="planning.php">
         <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
         <?php if ($hymn_suggestions !== []): ?>
