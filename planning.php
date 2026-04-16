@@ -382,16 +382,24 @@ $form_state_key = 'planning_form_state';
 $request_data = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['clear_service'])) {
+        $_SESSION[$form_state_key] = [
+            'service_date' => date('Y-m-d'),
+        ];
+        header('Location: planning.php', true, 303);
+        exit;
+    }
+
+    if (isset($_POST['add_service'])) {
+        $_SESSION[$form_state_key] = $_POST;
+        header('Location: planning.php', true, 303);
+        exit;
+    }
+
     if (isset($_POST['auto_preview'])) {
         $request_data = $_POST;
     } else {
-        if (isset($_POST['clear_service'])) {
-            $_SESSION[$form_state_key] = [
-                'service_date' => date('Y-m-d'),
-            ];
-        } else {
-            $_SESSION[$form_state_key] = $_POST;
-        }
+        $_SESSION[$form_state_key] = $_POST;
         header('Location: planning.php', true, 303);
         exit;
     }
