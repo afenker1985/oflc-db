@@ -603,6 +603,11 @@ foreach ($service_settings as $service_setting) {
     $hymn_field_definitions_by_service[$service_id] = oflc_build_hymn_field_definitions($service_setting, $hymn_slots);
 }
 
+$selected_date_display = '&nbsp;';
+if ($selected_service_date_obj instanceof DateTimeImmutable) {
+    $selected_date_display = $selected_service_date_obj->format('l, F j');
+}
+
 $service_card_color_class = 'service-card-color-dark';
 if ($selected_option_detail !== null) {
     $service_card_color_class = oflc_get_liturgical_color_text_class($selected_option_detail['observance']['liturgical_color'] ?? null);
@@ -633,7 +638,7 @@ include 'includes/header.php';
                 <div class="service-card-date-row">
                     <input type="date" id="service_date" name="service_date" class="service-card-text" value="<?php echo htmlspecialchars($selected_date, ENT_QUOTES, 'UTF-8'); ?>" onchange="oflcSubmitPlannerPreview(this.form, true);">
                 </div>
-                <div class="service-card-display-date"><?php echo htmlspecialchars(date('l, F j', strtotime($selected_date)), ENT_QUOTES, 'UTF-8'); ?></div>
+                <div class="service-card-display-date"><?php echo $selected_date_display === '&nbsp;' ? '&nbsp;' : htmlspecialchars($selected_date_display, ENT_QUOTES, 'UTF-8'); ?></div>
                 <select id="option_key" name="option_key" class="service-card-select" onchange="oflcSubmitPlannerPreview(this.form, true)">
                     <option value="">Select an option</option>
                     <?php foreach ($service_option_choices as $choice): ?>
