@@ -97,6 +97,11 @@
     gap: 14px;
 }
 
+.service-card-color-line,
+.service-card-service-summary {
+    min-height: 1.4em;
+}
+
 .service-card-label {
     display: block;
     margin-top: 8px;

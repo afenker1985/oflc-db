@@ -670,7 +670,8 @@ include 'includes/header.php';
                         <?php endforeach; ?>
                     </select>
                     <div class="service-card-service-summary" id="service-setting-summary"><?php echo $selected_service_setting_summary === '&nbsp;' ? '&nbsp;' : htmlspecialchars($selected_service_setting_summary, ENT_QUOTES, 'UTF-8'); ?></div>
-                    <div><?php echo htmlspecialchars(oflc_get_liturgical_color_display($selected_option_detail['observance']['liturgical_color'] ?? null), ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php $liturgical_color_display = oflc_get_liturgical_color_display($selected_option_detail['observance']['liturgical_color'] ?? null); ?>
+                    <div class="service-card-color-line"><?php echo $liturgical_color_display === '' ? '&nbsp;' : htmlspecialchars($liturgical_color_display, ENT_QUOTES, 'UTF-8'); ?></div>
                     <?php if ($selected_option_is_sunday && $selected_option_previous_thursday_label !== null): ?>
                         <label class="service-card-checkbox">
                             <input type="checkbox" name="copy_to_previous_thursday" value="1"<?php echo isset($request_data['copy_to_previous_thursday']) ? ' checked' : ''; ?>>
