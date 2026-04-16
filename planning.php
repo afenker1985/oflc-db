@@ -751,7 +751,7 @@ include 'includes/header.php';
         </div>
     </form>
     <div class="service-card-actions">
-        <button type="submit" name="clear_service" value="1" class="clear-list-button" form="add-service-form">Clear Service</button>
+        <button type="button" class="clear-list-button" onclick="oflcClearPlanner(document.getElementById('add-service-form'));">Clear Service</button>
         <button type="submit" name="add_service" value="1" class="add-hymn-button" form="add-service-form">Add Service</button>
     </div>
 
@@ -869,6 +869,44 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
     }
 
     formData = new FormData(form);
+
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'same-origin'
+    })
+        .then(function (response) {
+            return response.text();
+        })
+        .then(function (html) {
+            var parser = new DOMParser();
+            var documentFragment = parser.parseFromString(html, 'text/html');
+            var nextRoot = documentFragment.getElementById('planner-root');
+            var currentRoot = document.getElementById('planner-root');
+
+            if (!nextRoot || !currentRoot) {
+                window.location.reload();
+                return;
+            }
+
+            currentRoot.replaceWith(nextRoot);
+            if (typeof window.oflcInitializePlannerUI === 'function') {
+                window.oflcInitializePlannerUI(document);
+            }
+        })
+        .catch(function () {
+            window.location.reload();
+        });
+}
+
+function oflcClearPlanner(form) {
+    var formData = new FormData(form);
+
+    formData.delete('auto_preview');
+    formData.set('clear_service', '1');
 
     fetch(form.action, {
         method: 'POST',
