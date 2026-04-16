@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/liturgical_keys.php';
 
-function oflc_get_liturgical_day(string $date_string): ?array
+function oflc_get_liturgical_day(string $date_string)
 {
     $date = DateTimeImmutable::createFromFormat('Y-m-d', $date_string);
     if (!$date || $date->format('Y-m-d') !== $date_string) {
@@ -32,7 +32,7 @@ function oflc_get_liturgical_day(string $date_string): ?array
     ];
 }
 
-function oflc_get_liturgical_window(string $date_string, int $days_before = 7, int $days_after = 7): ?array
+function oflc_get_liturgical_window(string $date_string, int $days_before = 7, int $days_after = 7)
 {
     $selected = oflc_get_liturgical_day($date_string);
     if ($selected === null) {
@@ -89,7 +89,7 @@ function oflc_normalize_logic_keys($value): array
     return is_string($value) && $value !== '' ? [$value] : [];
 }
 
-function oflc_resolve_logic_keys(?int $week, int $weekday, int $month, int $day): array
+function oflc_resolve_logic_keys($week, int $weekday, int $month, int $day): array
 {
     $movable_keys = oflc_resolve_movable_logic_keys($week, $weekday);
     if ($movable_keys !== []) {
@@ -99,13 +99,13 @@ function oflc_resolve_logic_keys(?int $week, int $weekday, int $month, int $day)
     return oflc_resolve_fixed_logic_keys($month, $day);
 }
 
-function oflc_resolve_logic_key(?int $week, int $weekday, int $month, int $day): ?string
+function oflc_resolve_logic_key($week, int $weekday, int $month, int $day)
 {
     $keys = oflc_resolve_logic_keys($week, $weekday, $month, $day);
     return $keys[0] ?? null;
 }
 
-function oflc_resolve_movable_logic_keys(?int $week, int $weekday): array
+function oflc_resolve_movable_logic_keys($week, int $weekday): array
 {
     if ($week === null) {
         return [];
@@ -115,7 +115,7 @@ function oflc_resolve_movable_logic_keys(?int $week, int $weekday): array
     return oflc_normalize_logic_keys($keys[$week][$weekday] ?? null);
 }
 
-function oflc_resolve_movable_logic_key(?int $week, int $weekday): ?string
+function oflc_resolve_movable_logic_key($week, int $weekday)
 {
     $keys = oflc_resolve_movable_logic_keys($week, $weekday);
     return $keys[0] ?? null;
@@ -127,7 +127,7 @@ function oflc_resolve_fixed_logic_keys(int $month, int $day): array
     return oflc_normalize_logic_keys($keys[$month . '-' . $day] ?? null);
 }
 
-function oflc_resolve_fixed_logic_key(int $month, int $day): ?string
+function oflc_resolve_fixed_logic_key(int $month, int $day)
 {
     $keys = oflc_resolve_fixed_logic_keys($month, $day);
     return $keys[0] ?? null;
@@ -139,7 +139,7 @@ function oflc_get_sunday(DateTimeImmutable $date): DateTimeImmutable
     return $weekday === 0 ? $date : $date->modify('-' . $weekday . ' days');
 }
 
-function oflc_get_one_year_week(DateTimeImmutable $date): ?int
+function oflc_get_one_year_week(DateTimeImmutable $date)
 {
     $year = (int) $date->format('Y');
     $sunday = oflc_get_sunday($date);

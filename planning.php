@@ -17,7 +17,7 @@ function oflc_request_value(array $request_data, string $key, string $default = 
     return trim((string) $request_data[$key]);
 }
 
-function oflc_fetch_movable_observances(PDO $pdo, ?int $week, ?int $day): array
+function oflc_fetch_movable_observances(PDO $pdo, $week, $day): array
 {
     return oflc_fetch_observances_by_logic_keys($pdo, oflc_resolve_movable_logic_keys($week, (int) $day));
 }
@@ -103,30 +103,42 @@ function oflc_format_sunday_list_label(array $entry, array $observance): string
     return $observance['name'] . ' (' . $month_day_label . ')';
 }
 
-function oflc_get_liturgical_color_display(?string $color): string
+function oflc_get_liturgical_color_display($color): string
 {
     $color = trim((string) $color);
     return $color === '' ? 'NOT SET' : strtoupper($color);
 }
 
-function oflc_get_liturgical_color_text_class(?string $color): string
+function oflc_get_liturgical_color_text_class($color): string
 {
     $color = strtolower(trim((string) $color));
 
-    return match ($color) {
-        'white', '' => 'service-card-color-dark',
-        'gold' => 'service-card-color-gold',
-        'green' => 'service-card-color-green',
-        'violet', 'purple' => 'service-card-color-violet',
-        'blue' => 'service-card-color-blue',
-        'rose', 'pink' => 'service-card-color-rose',
-        'scarlet', 'red' => 'service-card-color-red',
-        'black' => 'service-card-color-black',
-        default => 'service-card-color-dark',
-    };
+    switch ($color) {
+        case 'gold':
+            return 'service-card-color-gold';
+        case 'green':
+            return 'service-card-color-green';
+        case 'violet':
+        case 'purple':
+            return 'service-card-color-violet';
+        case 'blue':
+            return 'service-card-color-blue';
+        case 'rose':
+        case 'pink':
+            return 'service-card-color-rose';
+        case 'scarlet':
+        case 'red':
+            return 'service-card-color-red';
+        case 'black':
+            return 'service-card-color-black';
+        case 'white':
+        case '':
+        default:
+            return 'service-card-color-dark';
+    }
 }
 
-function oflc_clean_reading_text(?string $text, bool $remove_antiphon = false): string
+function oflc_clean_reading_text($text, bool $remove_antiphon = false): string
 {
     $text = trim((string) $text);
     if ($text === '') {
@@ -171,7 +183,9 @@ function oflc_fetch_logic_key_name_map(PDO $pdo, array $logic_keys): array
         return [];
     }
 
-    $logic_keys = array_values(array_unique(array_filter($logic_keys, static fn ($value): bool => trim((string) $value) !== '')));
+    $logic_keys = array_values(array_unique(array_filter($logic_keys, static function ($value) {
+        return trim((string) $value) !== '';
+    })));
     if ($logic_keys === []) {
         return [];
     }
@@ -197,7 +211,7 @@ function oflc_fetch_logic_key_name_map(PDO $pdo, array $logic_keys): array
     return $name_map;
 }
 
-function oflc_fetch_observance_detail(PDO $pdo, string $logic_key): ?array
+function oflc_fetch_observance_detail(PDO $pdo, string $logic_key)
 {
     $stmt = $pdo->prepare(
         'SELECT id, name, latin_name, logic_key, season, liturgical_color, notes
@@ -244,7 +258,9 @@ function oflc_fetch_hymn_suggestions(PDO $pdo): array
         $parts = array_filter([
             trim((string) ($row['hymnal'] ?? '')),
             trim((string) ($row['hymn_number'] ?? '')),
-        ], static fn ($value): bool => $value !== '');
+        ], static function ($value) {
+            return $value !== '';
+        });
 
         $label = implode(' ', $parts);
         $title = trim((string) ($row['hymn_title'] ?? ''));
@@ -293,7 +309,7 @@ function oflc_fetch_hymn_slots(PDO $pdo): array
     return $slots;
 }
 
-function oflc_build_hymn_field_definitions(?array $selected_service_setting_detail, array $hymn_slots): array
+function oflc_build_hymn_field_definitions($selected_service_setting_detail, array $hymn_slots): array
 {
     $abbreviation = trim((string) ($selected_service_setting_detail['abbreviation'] ?? ''));
     $definitions = [];
