@@ -4,7 +4,6 @@ declare(strict_types=1);
 session_start();
 
 $page_title = 'Add a Service';
-include 'includes/header.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/liturgical.php';
 
@@ -588,6 +587,8 @@ $service_card_color_class = 'service-card-color-dark';
 if ($selected_option_detail !== null) {
     $service_card_color_class = oflc_get_liturgical_color_text_class($selected_option_detail['observance']['liturgical_color'] ?? null);
 }
+
+include 'includes/header.php';
 ?>
 
 <h3>Add a Service</h3>
