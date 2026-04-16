@@ -379,21 +379,28 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
 }
 
 $form_state_key = 'planning_form_state';
+$request_data = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['clear_service'])) {
-        $_SESSION[$form_state_key] = [
-            'service_date' => date('Y-m-d'),
-        ];
+    if (isset($_POST['auto_preview'])) {
+        $request_data = $_POST;
     } else {
-        $_SESSION[$form_state_key] = $_POST;
+        if (isset($_POST['clear_service'])) {
+            $_SESSION[$form_state_key] = [
+                'service_date' => date('Y-m-d'),
+            ];
+        } else {
+            $_SESSION[$form_state_key] = $_POST;
+        }
+        header('Location: planning.php', true, 303);
+        exit;
     }
-    header('Location: planning.php', true, 303);
-    exit;
 }
 
-$request_data = $_SESSION[$form_state_key] ?? [];
-unset($_SESSION[$form_state_key]);
+if ($request_data === []) {
+    $request_data = $_SESSION[$form_state_key] ?? [];
+    unset($_SESSION[$form_state_key]);
+}
 
 $selected_date = oflc_request_value($request_data, 'service_date', date('Y-m-d'));
 $liturgical_window = null;
@@ -599,6 +606,7 @@ include 'includes/header.php';
     <p class="planning-error"><?php echo htmlspecialchars($date_error, ENT_QUOTES, 'UTF-8'); ?></p>
 <?php elseif ($liturgical_window !== null): ?>
     <form id="add-service-form" class="service-card <?php echo htmlspecialchars($service_card_color_class, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="planning.php">
+        <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
         <?php if ($hymn_suggestions !== []): ?>
             <datalist id="hymn-options">
                 <?php foreach ($hymn_suggestions as $suggestion): ?>
@@ -609,10 +617,10 @@ include 'includes/header.php';
         <div class="service-card-grid">
             <section class="service-card-panel">
                 <div class="service-card-date-row">
-                    <input type="date" id="service_date" name="service_date" class="service-card-text" value="<?php echo htmlspecialchars($selected_date, ENT_QUOTES, 'UTF-8'); ?>" onchange="oflcResetReadingSelection(this.form); this.form.submit();">
+                    <input type="date" id="service_date" name="service_date" class="service-card-text" value="<?php echo htmlspecialchars($selected_date, ENT_QUOTES, 'UTF-8'); ?>" onchange="oflcSubmitPlannerPreview(this.form, true);">
                 </div>
                 <div class="service-card-display-date"><?php echo htmlspecialchars(date('l, F j', strtotime($selected_date)), ENT_QUOTES, 'UTF-8'); ?></div>
-                <select id="option_key" name="option_key" class="service-card-select" onchange="oflcResetReadingSelection(this.form); this.form.submit()">
+                <select id="option_key" name="option_key" class="service-card-select" onchange="oflcSubmitPlannerPreview(this.form, true)">
                     <option value="">Select an option</option>
                     <?php foreach ($service_option_choices as $choice): ?>
                         <option value="<?php echo htmlspecialchars($choice['logic_key'], ENT_QUOTES, 'UTF-8'); ?>"<?php echo $selected_option_key === $choice['logic_key'] ? ' selected' : ''; ?>>
@@ -629,7 +637,7 @@ include 'includes/header.php';
                     ?>
                 </div>
                 <div class="service-card-meta">
-                    <select id="service_setting" name="service_setting" class="service-card-select" onchange="this.form.submit()">
+                    <select id="service_setting" name="service_setting" class="service-card-select" onchange="oflcSubmitPlannerPreview(this.form, false)">
                         <option value="">Select a service</option>
                         <?php foreach ($service_settings as $service_setting): ?>
                             <option
@@ -827,6 +835,20 @@ function oflcResetReadingSelection(form) {
     Array.prototype.forEach.call(radios, function (radio) {
         radio.checked = false;
     });
+}
+
+function oflcSubmitPlannerPreview(form, resetReadings) {
+    var autoPreview = form.querySelector('#auto-preview-flag');
+
+    if (resetReadings) {
+        oflcResetReadingSelection(form);
+    }
+
+    if (autoPreview) {
+        autoPreview.value = '1';
+    }
+
+    form.submit();
 }
 
 (function () {
