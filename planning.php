@@ -589,6 +589,11 @@ if ($selected_service_setting_detail !== null) {
 }
 
 $hymn_field_definitions = oflc_build_hymn_field_definitions($selected_service_setting_detail, $hymn_slots);
+$hymn_field_definitions_by_service = [];
+foreach ($service_settings as $service_setting) {
+    $service_id = (string) $service_setting['id'];
+    $hymn_field_definitions_by_service[$service_id] = oflc_build_hymn_field_definitions($service_setting, $hymn_slots);
+}
 
 $service_card_color_class = 'service-card-color-dark';
 if ($selected_option_detail !== null) {
@@ -637,7 +642,7 @@ include 'includes/header.php';
                     ?>
                 </div>
                 <div class="service-card-meta">
-                    <select id="service_setting" name="service_setting" class="service-card-select" onchange="oflcSubmitPlannerPreview(this.form, false)">
+                    <select id="service_setting" name="service_setting" class="service-card-select">
                         <option value="">Select a service</option>
                         <?php foreach ($service_settings as $service_setting): ?>
                             <option
@@ -700,7 +705,11 @@ include 'includes/header.php';
             </section>
 
             <section class="service-card-panel">
-                <div class="service-card-hymns">
+                <div
+                    class="service-card-hymns"
+                    id="service-card-hymns"
+                    data-selected-service-id="<?php echo htmlspecialchars((string) $selected_service_setting, ENT_QUOTES, 'UTF-8'); ?>"
+                >
                     <?php if ($hymn_field_definitions !== []): ?>
                         <div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>
                     <?php endif; ?>
@@ -877,42 +886,111 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
 }());
 
 (function () {
-    var hymnInputs = document.querySelectorAll('.service-card-hymn-lookup');
-
-    Array.prototype.forEach.call(hymnInputs, function (input) {
-        var listId = input.getAttribute('data-list-id');
-
-        if (!listId) {
-            return;
-        }
-
-        input.addEventListener('focus', function () {
-            input.removeAttribute('list');
-        });
-
-        input.addEventListener('input', function () {
-            if (input.value.trim() === '') {
-                input.removeAttribute('list');
-                return;
-            }
-
-            input.setAttribute('list', listId);
-        });
-
-        input.addEventListener('blur', function () {
-            window.setTimeout(function () {
-                input.removeAttribute('list');
-            }, 0);
-        });
-    });
-}());
-
-(function () {
     var select = document.getElementById('service_setting');
     var summary = document.getElementById('service-setting-summary');
+    var hymnPane = document.getElementById('service-card-hymns');
+    var hymnSuggestionsId = 'hymn-options';
+    var hymnDefinitionsByService = <?php echo json_encode($hymn_field_definitions_by_service, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+    var hymnState = <?php
+        echo json_encode([
+            'hymns' => array_map('strval', $selected_hymns),
+            'opening_processional' => isset($request_data['opening_processional']),
+            'closing_recessional' => isset($request_data['closing_recessional']),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    ?>;
 
-    if (!select || !summary) {
+    if (!select || !summary || !hymnPane) {
         return;
+    }
+
+    function captureHymnState() {
+        var inputs = hymnPane.querySelectorAll('.service-card-hymn-lookup');
+        var openingProcessional = document.getElementById('opening_processional');
+        var closingRecessional = document.getElementById('closing_recessional');
+
+        Array.prototype.forEach.call(inputs, function (input) {
+            hymnState.hymns[input.name.replace('hymn_', '')] = input.value;
+        });
+
+        hymnState.opening_processional = !!(openingProcessional && openingProcessional.checked);
+        hymnState.closing_recessional = !!(closingRecessional && closingRecessional.checked);
+    }
+
+    function bindHymnLookupBehavior(scope) {
+        var hymnInputs = scope.querySelectorAll('.service-card-hymn-lookup');
+
+        Array.prototype.forEach.call(hymnInputs, function (input) {
+            input.addEventListener('focus', function () {
+                input.removeAttribute('list');
+            });
+
+            input.addEventListener('input', function () {
+                hymnState.hymns[input.name.replace('hymn_', '')] = input.value;
+
+                if (input.value.trim() === '') {
+                    input.removeAttribute('list');
+                    return;
+                }
+
+                input.setAttribute('list', hymnSuggestionsId);
+            });
+
+            input.addEventListener('blur', function () {
+                window.setTimeout(function () {
+                    input.removeAttribute('list');
+                }, 0);
+            });
+        });
+    }
+
+    function renderHymnPane(serviceId) {
+        var definitions = hymnDefinitionsByService[serviceId] || [];
+        var html = '';
+
+        if (definitions.length > 0) {
+            html += '<div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>';
+        }
+
+        Array.prototype.forEach.call(definitions, function (definition) {
+            var hymnIndex = String(definition.index);
+            var value = hymnState.hymns[hymnIndex] || '';
+            var toggleHtml = '';
+
+            if (definition.toggle_name) {
+                var isChecked = definition.toggle_name === 'opening_processional'
+                    ? hymnState.opening_processional
+                    : hymnState.closing_recessional;
+
+                toggleHtml =
+                    '<label class="service-card-hymn-inline-toggle" for="' + definition.toggle_name + '">' +
+                        '<input type="checkbox" id="' + definition.toggle_name + '" name="' + definition.toggle_name + '" value="1"' + (isChecked ? ' checked' : '') + '>' +
+                    '</label>';
+            }
+
+            html +=
+                '<div class="service-card-hymn-row">' +
+                    '<input type="text" id="hymn_' + hymnIndex + '" name="hymn_' + hymnIndex + '" value="' + value.replace(/"/g, '&quot;') + '" placeholder="' + definition.label.replace(/"/g, '&quot;') + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup">' +
+                    toggleHtml +
+                '</div>';
+        });
+
+        hymnPane.innerHTML = html;
+        bindHymnLookupBehavior(hymnPane);
+
+        var openingProcessional = document.getElementById('opening_processional');
+        var closingRecessional = document.getElementById('closing_recessional');
+
+        if (openingProcessional) {
+            openingProcessional.addEventListener('change', function () {
+                hymnState.opening_processional = openingProcessional.checked;
+            });
+        }
+
+        if (closingRecessional) {
+            closingRecessional.addEventListener('change', function () {
+                hymnState.closing_recessional = closingRecessional.checked;
+            });
+        }
     }
 
     function updateSummary() {
@@ -920,6 +998,8 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
 
         if (!option || !option.value) {
             summary.innerHTML = '&nbsp;';
+            captureHymnState();
+            renderHymnPane('');
             return;
         }
 
@@ -935,7 +1015,13 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
     }
 
     select.addEventListener('change', updateSummary);
+    select.addEventListener('change', function () {
+        captureHymnState();
+        renderHymnPane(select.value);
+    });
+    bindHymnLookupBehavior(document);
     updateSummary();
+    renderHymnPane(select.value);
 }());
 </script>
 
