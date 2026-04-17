@@ -386,13 +386,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION[$form_state_key] = [
             'service_date' => '',
         ];
-        header('Location: planning.php', true, 303);
+        header('Location: add-service.php', true, 303);
         exit;
     }
 
     if (isset($_POST['add_service'])) {
         $_SESSION[$form_state_key] = $_POST;
-        header('Location: planning.php', true, 303);
+        header('Location: add-service.php', true, 303);
         exit;
     }
 
@@ -400,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $request_data = $_POST;
     } else {
         $_SESSION[$form_state_key] = $_POST;
-        header('Location: planning.php', true, 303);
+        header('Location: add-service.php', true, 303);
         exit;
     }
 }
@@ -624,7 +624,7 @@ include 'includes/header.php';
 <?php if ($date_error !== null): ?>
     <p class="planning-error"><?php echo htmlspecialchars($date_error, ENT_QUOTES, 'UTF-8'); ?></p>
 <?php else: ?>
-    <form id="add-service-form" class="service-card <?php echo htmlspecialchars($service_card_color_class, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="planning.php">
+    <form id="add-service-form" class="service-card <?php echo htmlspecialchars($service_card_color_class, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="add-service.php">
         <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
         <?php if ($hymn_suggestions !== []): ?>
             <datalist id="hymn-options">

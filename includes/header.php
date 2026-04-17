@@ -29,10 +29,26 @@ $stylesheet_files = [
 
         <div class="main-nav">
             <ul>
-                <li><a href="/"><img src="home.png" width="25px"></a></li>
-                <li><a href="hymns.php">Hymns</a></li>
-                <li><a href="planning.php">Add a Service</a></li>
-                <li><a href="review.php">Service Review</a></li>
+                <li class="nav-item-home">
+                    <a href="index.php" aria-label="Home">
+                        <img src="home.png" width="25" alt="Home">
+                    </a>
+                </li>
+                <li class="nav-item-has-dropdown">
+                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Hymns</a>
+                    <ul class="nav-dropdown">
+                        <li><a href="hymns.php">Hymn Database</a></li>
+                        <li><a href="hymn-reports.php">Hymn Reports</a></li>
+                    </ul>
+                </li>
+                <li class="nav-item-has-dropdown">
+                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Services</a>
+                    <ul class="nav-dropdown">
+                        <li><a href="add-service.php">Add a Service</a></li>
+                        <li><a href="update-service.php">Update a Service</a></li>
+                        <li><a href="delete-service.php">Delete a Service</a></li>
+                    </ul>
+                </li>
                 <li><a href="schedule.php">Service Schedule</a></li>
             </ul>
         </div>

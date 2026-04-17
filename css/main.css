@@ -46,6 +46,7 @@ body {
 .main-nav ul li {
     display: inline-block;
     margin: 0 18px;
+    position: relative;
 }
 
 .main-nav ul li a {
@@ -58,6 +59,50 @@ body {
 
 .main-nav ul li a:hover {
     text-decoration: underline;
+}
+
+.main-nav .nav-item-home img {
+    vertical-align: middle;
+}
+
+.main-nav .nav-link-with-caret::after {
+    content: " \25BE";
+    font-size: 12px;
+}
+
+.main-nav .nav-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 190px;
+    background-color: #FFFFFF;
+    border: 1px solid #CCCCCC;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+    text-align: left;
+    z-index: 10;
+    padding: 6px 0;
+}
+
+.main-nav .nav-dropdown li {
+    display: block;
+    margin: 0;
+}
+
+.main-nav .nav-dropdown a {
+    padding: 10px 16px;
+    white-space: nowrap;
+}
+
+.main-nav .nav-dropdown a:hover {
+    background-color: #F3F6FB;
+    text-decoration: none;
+}
+
+.main-nav .nav-item-has-dropdown:hover .nav-dropdown,
+.main-nav .nav-item-has-dropdown:focus-within .nav-dropdown {
+    display: block;
 }
 
 .content {
@@ -83,5 +128,10 @@ body {
 
     .main-nav ul li {
         margin: 0 10px;
+    }
+
+    .main-nav .nav-dropdown {
+        left: 0;
+        transform: none;
     }
 }
