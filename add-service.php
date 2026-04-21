@@ -183,7 +183,7 @@ function oflc_format_festival_list_label(array $entry, array $observance): strin
 {
     $date = DateTimeImmutable::createFromFormat('Y-m-d', $entry['date']);
     $day_label = $date instanceof DateTimeImmutable ? oflc_format_short_weekday($date) : '';
-    $calendar_day_label = $date instanceof DateTimeImmutable ? $date->format('j') : $entry['date'];
+    $calendar_day_label = $date instanceof DateTimeImmutable ? $date->format('n/j') : $entry['date'];
 
     return $observance['name'] . ' (' . trim($day_label . ' ' . $calendar_day_label) . ')';
 }
@@ -348,6 +348,37 @@ function oflc_fetch_active_leaders(PDO $pdo): array
     return $stmt->fetchAll();
 }
 
+function oflc_build_leader_catalog_payload(array $leaders): array
+{
+    $payload = [
+        'by_id' => [],
+        'name_lookup' => [],
+        'suggestions' => [],
+    ];
+
+    foreach ($leaders as $leader) {
+        $leader_id = (int) ($leader['id'] ?? 0);
+        $last_name = trim((string) ($leader['last_name'] ?? ''));
+        if ($leader_id <= 0 || $last_name === '') {
+            continue;
+        }
+
+        $payload['by_id'][$leader_id] = [
+            'id' => $leader_id,
+            'first_name' => trim((string) ($leader['first_name'] ?? '')),
+            'last_name' => $last_name,
+        ];
+
+        $normalized_last_name = strtolower($last_name);
+        if (!isset($payload['name_lookup'][$normalized_last_name])) {
+            $payload['name_lookup'][$normalized_last_name] = $leader_id;
+            $payload['suggestions'][] = $last_name;
+        }
+    }
+
+    return $payload;
+}
+
 function oflc_format_hymn_suggestion_label_with_id(array $row): string
 {
     $parts = array_filter([
@@ -443,6 +474,183 @@ function oflc_resolve_hymn_id(string $value, array $lookupByKey): ?int
     }
 
     return (int) $lookupByKey[$value];
+}
+
+function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
+{
+    if (!$serviceDate instanceof DateTimeImmutable) {
+        return null;
+    }
+
+    $weekday = $serviceDate->format('w');
+
+    if ($weekday === '0') {
+        return [
+            'toggle_name' => 'copy_to_previous_thursday',
+            'direction' => 'previous_thursday',
+            'primary_key' => 'sunday',
+            'secondary_key' => 'thursday',
+            'primary_label' => 'Sunday Leader',
+            'secondary_label' => 'Thursday Leader',
+            'secondary_placeholder' => 'Blank = same as Sunday',
+            'secondary_date' => $serviceDate->modify('-3 days')->format('Y-m-d'),
+            'secondary_date_label' => $serviceDate->modify('-3 days')->format('m/d'),
+            'toggle_label' => 'Copy this service to the previous Thursday',
+        ];
+    }
+
+    if ($weekday === '4') {
+        return [
+            'toggle_name' => 'copy_to_upcoming_sunday',
+            'direction' => 'upcoming_sunday',
+            'primary_key' => 'thursday',
+            'secondary_key' => 'sunday',
+            'primary_label' => 'Thursday Leader',
+            'secondary_label' => 'Sunday Leader',
+            'secondary_placeholder' => 'Blank = same as Thursday',
+            'secondary_date' => $serviceDate->modify('+3 days')->format('Y-m-d'),
+            'secondary_date_label' => $serviceDate->modify('+3 days')->format('m/d'),
+            'toggle_label' => 'Copy this service to the upcoming Sunday',
+        ];
+    }
+
+    return null;
+}
+
+function oflc_parse_hymn_row_order(array $request_data): array
+{
+    $raw = trim((string) ($request_data['hymn_row_order'] ?? ''));
+    if ($raw === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $order = [];
+    foreach ($decoded as $key) {
+        $key = trim((string) $key);
+        if ($key !== '') {
+            $order[] = $key;
+        }
+    }
+
+    return array_values(array_unique($order));
+}
+
+function oflc_normalize_extra_hymn_rows(array $request_data): array
+{
+    $keys = $request_data['extra_hymn_keys'] ?? [];
+    $values = $request_data['extra_hymn_values'] ?? [];
+    $slots = $request_data['extra_hymn_slots'] ?? [];
+
+    if (!is_array($keys)) {
+        $keys = [$keys];
+    }
+    if (!is_array($values)) {
+        $values = [];
+    }
+    if (!is_array($slots)) {
+        $slots = [];
+    }
+
+    $rows = [];
+    foreach ($keys as $key) {
+        $normalized_key = trim((string) $key);
+        if ($normalized_key === '') {
+            continue;
+        }
+
+        $value = trim((string) ($values[$normalized_key] ?? ''));
+        $slot_name = trim((string) ($slots[$normalized_key] ?? 'Other Hymn'));
+        if ($slot_name !== 'Distribution Hymn' && $slot_name !== 'Other Hymn') {
+            $slot_name = 'Other Hymn';
+        }
+
+        $rows[] = [
+            'key' => $normalized_key,
+            'value' => $value,
+            'slot_name' => $slot_name,
+        ];
+    }
+
+    return $rows;
+}
+
+function oflc_fetch_hymn_fill_templates(PDO $pdo): array
+{
+    $stmt = $pdo->query(
+        'SELECT
+            s.id AS service_id,
+            s.service_date,
+            s.service_setting_id,
+            s.liturgical_calendar_id,
+            s.copied_from_service_id,
+            lc.name AS observance_name,
+            hu.hymn_id,
+            hu.sort_order,
+            hs.slot_name,
+            h.hymnal,
+            h.hymn_number,
+            h.hymn_title
+         FROM service_db s
+         LEFT JOIN liturgical_calendar lc
+            ON lc.id = s.liturgical_calendar_id
+         LEFT JOIN hymn_usage_db hu
+            ON hu.sunday_id = s.id
+           AND hu.is_active = 1
+         LEFT JOIN hymn_slot_db hs
+            ON hs.id = hu.slot_id
+         LEFT JOIN hymn_db h
+            ON h.id = hu.hymn_id
+         WHERE s.is_active = 1
+           AND s.copied_from_service_id IS NULL
+         ORDER BY s.service_date DESC, s.id DESC, hu.sort_order ASC, hu.id ASC'
+    );
+
+    $templates = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $service_id = (int) ($row['service_id'] ?? 0);
+        if ($service_id <= 0) {
+            continue;
+        }
+
+        if (!isset($templates[$service_id])) {
+            $service_date = trim((string) ($row['service_date'] ?? ''));
+            $service_year = $service_date !== '' ? substr($service_date, 0, 4) : '';
+            $observance_name = trim((string) ($row['observance_name'] ?? ''));
+
+            $templates[$service_id] = [
+                'id' => $service_id,
+                'service_date' => $service_date,
+                'service_setting_id' => (int) ($row['service_setting_id'] ?? 0),
+                'liturgical_calendar_id' => (int) ($row['liturgical_calendar_id'] ?? 0),
+                'observance_name' => $observance_name,
+                'label' => trim($observance_name . ' ' . $service_year),
+                'hymns' => [],
+            ];
+        }
+
+        $hymn_id = (int) ($row['hymn_id'] ?? 0);
+        if ($hymn_id <= 0) {
+            continue;
+        }
+
+        $label = oflc_format_hymn_suggestion_label_with_id($row);
+        if ($label === '') {
+            continue;
+        }
+
+        $templates[$service_id]['hymns'][] = [
+            'label' => $label,
+            'slot_name' => trim((string) ($row['slot_name'] ?? 'Other Hymn')),
+            'sort_order' => (int) ($row['sort_order'] ?? 1),
+        ];
+    }
+
+    return array_values($templates);
 }
 
 function oflc_normalize_selected_reading_set_id($value): ?int
@@ -932,7 +1140,11 @@ $selected_observance_name = oflc_request_value($request_data, 'observance_name')
 $selected_service_setting_name = oflc_request_value($request_data, 'service_setting_name');
 $selected_service_setting = oflc_request_value($request_data, 'service_setting');
 $selected_preacher = oflc_request_value($request_data, 'preacher');
-$selected_thursday_preacher = oflc_request_value($request_data, 'thursday_preacher');
+$selected_secondary_preacher = oflc_request_value(
+    $request_data,
+    'secondary_preacher',
+    oflc_request_value($request_data, 'thursday_preacher')
+);
 $selected_reading_set_id = oflc_request_value($request_data, 'selected_reading_set_id');
 $selected_new_reading_set = oflc_request_value($request_data, 'selected_new_reading_set');
 $selected_new_observance_color = oflc_request_value($request_data, 'new_observance_color');
@@ -940,13 +1152,15 @@ $selected_small_catechism_id = oflc_request_value($request_data, 'small_catechis
 $selected_passion_reading_id = oflc_request_value($request_data, 'passion_reading_id');
 $selected_small_catechism_labels = oflc_request_values($request_data, 'small_catechism_labels');
 $new_reading_sets = oflc_service_normalize_new_reading_set_drafts($request_data);
+$extra_hymn_rows = oflc_normalize_extra_hymn_rows($request_data);
+$submitted_hymn_row_order = oflc_parse_hymn_row_order($request_data);
 $selected_hymns = [];
 $selected_option_detail = null;
 $selected_service_date_obj = DateTimeImmutable::createFromFormat('Y-m-d', $selected_date) ?: null;
 $selected_option_is_sunday = $selected_service_date_obj instanceof DateTimeImmutable
     ? $selected_service_date_obj->format('w') === '0'
     : false;
-$selected_option_previous_thursday_label = null;
+$copy_service_config = oflc_get_copy_service_config($selected_service_date_obj);
 $logic_columns_ready = false;
 $date_error = null;
 $recently_celebrated_observance_ids = [];
@@ -958,6 +1172,8 @@ $small_catechism_options = oflc_fetch_small_catechism_options($pdo);
 $passion_reading_options = oflc_fetch_passion_reading_options($pdo);
 $hymn_slots = oflc_fetch_hymn_slots($pdo);
 $leaders = oflc_fetch_active_leaders($pdo);
+$leader_catalog_payload = oflc_build_leader_catalog_payload($leaders);
+$hymn_fill_templates = oflc_fetch_hymn_fill_templates($pdo);
 $service_settings_by_id = [];
 $small_catechism_by_id = [];
 $small_catechism_lookup = [];
@@ -965,6 +1181,7 @@ $passion_reading_by_id = [];
 $logic_key_name_map = [];
 $date_observance_suggestions = [];
 $leaders_by_last_name = [];
+$leaders_by_normalized_last_name = [];
 $active_observance_details = oflc_service_fetch_active_observance_details($pdo);
 $liturgical_color_options = oflc_get_liturgical_color_options();
 $observance_catalog_payload = [
@@ -995,6 +1212,7 @@ foreach ($leaders as $leader) {
     $last_name = trim((string) ($leader['last_name'] ?? ''));
     if ($last_name !== '') {
         $leaders_by_last_name[$last_name] = (int) ($leader['id'] ?? 0);
+        $leaders_by_normalized_last_name[strtolower($last_name)] = (int) ($leader['id'] ?? 0);
     }
 }
 
@@ -1141,7 +1359,7 @@ if ($selected_date !== '') {
                 $festival_name = $logic_key_name_map[$logic_key] ?? oflc_humanize_logic_key($logic_key);
                 $festival_date = DateTimeImmutable::createFromFormat('Y-m-d', $entry['date']);
                 $festival_day_label = $festival_date instanceof DateTimeImmutable ? oflc_format_short_weekday($festival_date) : '';
-                $festival_calendar_day_label = $festival_date instanceof DateTimeImmutable ? $festival_date->format('j') : $entry['date'];
+                $festival_calendar_day_label = $festival_date instanceof DateTimeImmutable ? $festival_date->format('n/j') : $entry['date'];
                 $feast_service_option_choices[$logic_key] = [
                     'logic_key' => $logic_key,
                     'is_sunday' => false,
@@ -1189,10 +1407,6 @@ if ($selected_date !== '') {
     }
 }
 
-if ($selected_option_is_sunday && $selected_service_date_obj instanceof DateTimeImmutable) {
-    $selected_option_previous_thursday_label = $selected_service_date_obj->modify('-3 days')->format('m/d');
-}
-
 if ($selected_small_catechism_labels === [] && $selected_small_catechism_id !== '' && ctype_digit($selected_small_catechism_id)) {
     $selected_small_catechism_id_int = (int) $selected_small_catechism_id;
     if (isset($small_catechism_by_id[$selected_small_catechism_id_int])) {
@@ -1235,6 +1449,20 @@ $hymn_field_definitions_by_service = [];
 foreach ($service_settings as $service_setting) {
     $service_id = (string) $service_setting['id'];
     $hymn_field_definitions_by_service[$service_id] = oflc_build_hymn_field_definitions($service_setting, $hymn_slots);
+}
+$default_hymn_row_order = array_map(static function (array $definition): string {
+    return 'base:' . (int) ($definition['index'] ?? 0);
+}, $hymn_field_definitions);
+foreach ($extra_hymn_rows as $extra_hymn_row) {
+    if (!empty($extra_hymn_row['key'])) {
+        $default_hymn_row_order[] = (string) $extra_hymn_row['key'];
+    }
+}
+$submitted_hymn_row_order = array_values(array_filter($submitted_hymn_row_order, static function (string $key): bool {
+    return $key !== '';
+}));
+if ($submitted_hymn_row_order === []) {
+    $submitted_hymn_row_order = $default_hymn_row_order;
 }
 
 $selected_date_display = '&nbsp;';
@@ -1280,21 +1508,25 @@ if ($is_add_submit && $date_error === null) {
     }
 
     $leader_id = null;
-    if ($selected_preacher !== '') {
-        if (!isset($leaders_by_last_name[$selected_preacher]) || (int) $leaders_by_last_name[$selected_preacher] <= 0) {
+    $normalized_primary_preacher = strtolower(trim($selected_preacher));
+    if ($normalized_primary_preacher !== '') {
+        if (!isset($leaders_by_normalized_last_name[$normalized_primary_preacher]) || (int) $leaders_by_normalized_last_name[$normalized_primary_preacher] <= 0) {
             $form_errors[] = 'Leader must match an active last name.';
         } else {
-            $leader_id = (int) $leaders_by_last_name[$selected_preacher];
+            $leader_id = (int) $leaders_by_normalized_last_name[$normalized_primary_preacher];
         }
     }
 
-    $copy_to_previous_thursday = $selected_option_is_sunday && isset($request_data['copy_to_previous_thursday']);
-    $thursday_leader_id = null;
-    if ($copy_to_previous_thursday && $selected_thursday_preacher !== '') {
-        if (!isset($leaders_by_last_name[$selected_thursday_preacher]) || (int) $leaders_by_last_name[$selected_thursday_preacher] <= 0) {
-            $form_errors[] = 'Thursday leader must match an active last name.';
+    $copy_service_enabled = $copy_service_config !== null
+        && isset($request_data[(string) ($copy_service_config['toggle_name'] ?? '')]);
+    $secondary_leader_id = null;
+    $normalized_secondary_preacher = strtolower(trim($selected_secondary_preacher));
+    if ($copy_service_enabled && $normalized_secondary_preacher !== '') {
+        if (!isset($leaders_by_normalized_last_name[$normalized_secondary_preacher]) || (int) $leaders_by_normalized_last_name[$normalized_secondary_preacher] <= 0) {
+            $secondary_label = trim((string) ($copy_service_config['secondary_label'] ?? 'Secondary leader'));
+            $form_errors[] = $secondary_label . ' must match an active last name.';
         } else {
-            $thursday_leader_id = (int) $leaders_by_last_name[$selected_thursday_preacher];
+            $secondary_leader_id = (int) $leaders_by_normalized_last_name[$normalized_secondary_preacher];
         }
     }
 
@@ -1379,18 +1611,10 @@ if ($is_add_submit && $date_error === null) {
         $passion_reading_id = null;
     }
 
-    $hymn_entries = [];
+    $base_hymn_rows = [];
     foreach ($hymn_field_definitions as $definition) {
         $index = (int) ($definition['index'] ?? 0);
-        $hymn_value = $selected_hymns[$index] ?? '';
-        $hymn_id = oflc_resolve_hymn_id($hymn_value, $hymn_catalog['lookup_by_key']);
-
-        if (trim($hymn_value) === '') {
-            continue;
-        }
-
-        if ($hymn_id === null) {
-            $form_errors[] = 'Hymn field ' . $index . ' must match a hymn from the suggestions.';
+        if ($index <= 0) {
             continue;
         }
 
@@ -1402,15 +1626,94 @@ if ($is_add_submit && $date_error === null) {
             $slot_name = 'Recessional Hymn';
         }
 
+        $base_hymn_rows['base:' . $index] = [
+            'label' => (string) ($definition['label'] ?? ('Hymn ' . $index)),
+            'value' => $selected_hymns[$index] ?? '',
+            'slot_name' => $slot_name,
+        ];
+    }
+
+    $extra_hymn_rows_by_key = [];
+    foreach ($extra_hymn_rows as $extra_hymn_row) {
+        $extra_key = trim((string) ($extra_hymn_row['key'] ?? ''));
+        if ($extra_key === '') {
+            continue;
+        }
+
+        $extra_hymn_rows_by_key[$extra_key] = [
+            'label' => 'Additional hymn',
+            'value' => trim((string) ($extra_hymn_row['value'] ?? '')),
+            'slot_name' => trim((string) ($extra_hymn_row['slot_name'] ?? 'Other Hymn')),
+        ];
+    }
+
+    $ordered_hymn_row_keys = $submitted_hymn_row_order;
+    if ($ordered_hymn_row_keys === []) {
+        $ordered_hymn_row_keys = array_merge(array_keys($base_hymn_rows), array_keys($extra_hymn_rows_by_key));
+    }
+
+    $all_hymn_rows = $base_hymn_rows + $extra_hymn_rows_by_key;
+    foreach (array_keys($all_hymn_rows) as $row_key) {
+        if (!in_array($row_key, $ordered_hymn_row_keys, true)) {
+            $ordered_hymn_row_keys[] = $row_key;
+        }
+    }
+
+    $hymn_entries = [];
+    $ordered_base_row_keys = array_values(array_filter($ordered_hymn_row_keys, static function (string $row_key): bool {
+        return strpos($row_key, 'base:') === 0;
+    }));
+    $base_row_rank_by_key = [];
+    foreach ($ordered_base_row_keys as $base_row_rank => $base_row_key) {
+        $base_row_rank_by_key[$base_row_key] = $base_row_rank;
+    }
+
+    $slot_sort_order_counts = [];
+
+    foreach ($ordered_hymn_row_keys as $display_position => $row_key) {
+        if (!isset($all_hymn_rows[$row_key])) {
+            continue;
+        }
+
+        $row = $all_hymn_rows[$row_key];
+        $hymn_value = trim((string) ($row['value'] ?? ''));
+        if ($hymn_value === '') {
+            continue;
+        }
+
+        $hymn_id = oflc_resolve_hymn_id($hymn_value, $hymn_catalog['lookup_by_key']);
+        if ($hymn_id === null) {
+            $form_errors[] = trim((string) ($row['label'] ?? 'Hymn')) . ' must match a hymn from the suggestions.';
+            continue;
+        }
+
+        $slot_name = trim((string) ($row['slot_name'] ?? ''));
+        if (strpos($row_key, 'base:') === 0) {
+            $base_rank = $base_row_rank_by_key[$row_key] ?? null;
+            $definition_for_position = $base_rank !== null ? ($hymn_field_definitions[$base_rank] ?? null) : null;
+
+            if (is_array($definition_for_position)) {
+                $slot_name = trim((string) ($definition_for_position['slot_name'] ?? $slot_name));
+                if (($definition_for_position['toggle_name'] ?? null) === 'opening_processional' && isset($request_data['opening_processional'])) {
+                    $slot_name = 'Processional Hymn';
+                }
+                if (($definition_for_position['toggle_name'] ?? null) === 'closing_recessional' && isset($request_data['closing_recessional'])) {
+                    $slot_name = 'Recessional Hymn';
+                }
+            }
+        }
+
         if (!isset($hymn_slots[$slot_name]['id'])) {
             $form_errors[] = 'Missing hymn slot configuration for ' . $slot_name . '.';
             continue;
         }
 
+        $slot_sort_order_counts[$slot_name] = ($slot_sort_order_counts[$slot_name] ?? 0) + 1;
+
         $hymn_entries[] = [
             'hymn_id' => $hymn_id,
             'slot_id' => (int) $hymn_slots[$slot_name]['id'],
-            'sort_order' => (int) ($definition['sort_order'] ?? 1),
+            'sort_order' => $slot_sort_order_counts[$slot_name],
         ];
     }
 
@@ -1420,9 +1723,13 @@ if ($is_add_submit && $date_error === null) {
 
     $target_dates = [];
     if ($selected_service_date_obj instanceof DateTimeImmutable) {
-        $target_dates['sunday'] = $selected_service_date_obj->format('Y-m-d');
-        if ($copy_to_previous_thursday) {
-            $target_dates['thursday'] = $selected_service_date_obj->modify('-3 days')->format('Y-m-d');
+        if ($copy_service_config !== null) {
+            $target_dates[(string) $copy_service_config['primary_key']] = $selected_service_date_obj->format('Y-m-d');
+            if ($copy_service_enabled) {
+                $target_dates[(string) $copy_service_config['secondary_key']] = (string) ($copy_service_config['secondary_date'] ?? '');
+            }
+        } else {
+            $target_dates['sunday'] = $selected_service_date_obj->format('Y-m-d');
         }
 
         $conflict_stmt = $pdo->prepare(
@@ -1520,49 +1827,42 @@ if ($is_add_submit && $date_error === null) {
             );
 
             $liturgical_calendar_id = (int) ($persisted_observance_detail['observance']['id'] ?? 0) ?: null;
-            $insert_service_stmt->execute([
-                ':service_date' => $target_dates['sunday'],
-                ':liturgical_calendar_id' => $liturgical_calendar_id,
-                ':passion_reading_id' => $passion_reading_id,
-                ':small_catechism_id' => $small_catechism_id,
-                ':selected_reading_set_id' => $resolved_selected_reading_set_id,
-                ':service_setting_id' => $service_setting_id,
-                ':leader_id' => $leader_id,
-                ':copied_from_service_id' => null,
-                ':last_updated' => $today,
-            ]);
-            $sunday_service_id = (int) $pdo->lastInsertId();
-            oflc_insert_service_small_catechism_links($pdo, $sunday_service_id, $small_catechism_ids, $today);
 
-            foreach ($hymn_entries as $entry) {
-                $insert_usage_stmt->execute([
-                    ':sunday_id' => $sunday_service_id,
-                    ':hymn_id' => $entry['hymn_id'],
-                    ':slot_id' => $entry['slot_id'],
-                    ':sort_order' => $entry['sort_order'],
-                    ':created_at' => $today,
-                    ':last_updated' => $today,
-                ]);
-            }
-
-            if (isset($target_dates['thursday'])) {
+            $insertServiceWithHymns = static function (
+                string $serviceDate,
+                ?int $leaderId,
+                ?int $copiedFromServiceId
+            ) use (
+                $insert_service_stmt,
+                $insert_usage_stmt,
+                $liturgical_calendar_id,
+                $passion_reading_id,
+                $small_catechism_id,
+                $resolved_selected_reading_set_id,
+                $service_setting_id,
+                $today,
+                $small_catechism_ids,
+                $hymn_entries,
+                $pdo
+            ): int {
                 $insert_service_stmt->execute([
-                    ':service_date' => $target_dates['thursday'],
+                    ':service_date' => $serviceDate,
                     ':liturgical_calendar_id' => $liturgical_calendar_id,
                     ':passion_reading_id' => $passion_reading_id,
                     ':small_catechism_id' => $small_catechism_id,
                     ':selected_reading_set_id' => $resolved_selected_reading_set_id,
                     ':service_setting_id' => $service_setting_id,
-                    ':leader_id' => $thursday_leader_id ?? $leader_id,
-                    ':copied_from_service_id' => $sunday_service_id,
+                    ':leader_id' => $leaderId,
+                    ':copied_from_service_id' => $copiedFromServiceId,
                     ':last_updated' => $today,
                 ]);
-                $thursday_service_id = (int) $pdo->lastInsertId();
-                oflc_insert_service_small_catechism_links($pdo, $thursday_service_id, $small_catechism_ids, $today);
+
+                $serviceId = (int) $pdo->lastInsertId();
+                oflc_insert_service_small_catechism_links($pdo, $serviceId, $small_catechism_ids, $today);
 
                 foreach ($hymn_entries as $entry) {
                     $insert_usage_stmt->execute([
-                        ':sunday_id' => $thursday_service_id,
+                        ':sunday_id' => $serviceId,
                         ':hymn_id' => $entry['hymn_id'],
                         ':slot_id' => $entry['slot_id'],
                         ':sort_order' => $entry['sort_order'],
@@ -1570,6 +1870,37 @@ if ($is_add_submit && $date_error === null) {
                         ':last_updated' => $today,
                     ]);
                 }
+
+                return $serviceId;
+            };
+
+            if ($copy_service_enabled && isset($target_dates['thursday']) && isset($target_dates['sunday'])) {
+                if (($copy_service_config['primary_key'] ?? '') === 'thursday') {
+                    $sunday_service_id = $insertServiceWithHymns(
+                        (string) $target_dates['sunday'],
+                        $secondary_leader_id ?? $leader_id,
+                        null
+                    );
+                    $insertServiceWithHymns(
+                        (string) $target_dates['thursday'],
+                        $leader_id,
+                        $sunday_service_id
+                    );
+                } else {
+                    $sunday_service_id = $insertServiceWithHymns(
+                        (string) $target_dates['sunday'],
+                        $leader_id,
+                        null
+                    );
+                    $insertServiceWithHymns(
+                        (string) $target_dates['thursday'],
+                        $secondary_leader_id ?? $leader_id,
+                        $sunday_service_id
+                    );
+                }
+            } else {
+                $primary_service_date = $selected_service_date_obj->format('Y-m-d');
+                $insertServiceWithHymns($primary_service_date, $leader_id, null);
             }
 
             $pdo->commit();
@@ -1621,29 +1952,25 @@ include 'includes/header.php';
         data-initial-reading-editor="<?php echo htmlspecialchars(json_encode(array_values($new_reading_sets), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-small-catechism-options="<?php echo htmlspecialchars(json_encode(array_values($small_catechism_options), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-passion-reading-options="<?php echo htmlspecialchars(json_encode(array_values($passion_reading_options), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+        data-leader-catalog="<?php echo htmlspecialchars(json_encode($leader_catalog_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+        data-hymn-fill-templates="<?php echo htmlspecialchars(json_encode($hymn_fill_templates, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-small-catechism-labels="<?php echo htmlspecialchars(json_encode(array_values($selected_small_catechism_labels), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-passion-reading-id="<?php echo htmlspecialchars((string) $selected_passion_reading_id, ENT_QUOTES, 'UTF-8'); ?>"
         data-initial-hymn-state="<?php echo htmlspecialchars(json_encode([
             'hymns' => array_map('strval', $selected_hymns),
             'opening_processional' => isset($request_data['opening_processional']),
             'closing_recessional' => isset($request_data['closing_recessional']),
+            'extra_rows' => array_values($extra_hymn_rows),
+            'order' => array_values($submitted_hymn_row_order),
+            'next_extra_id' => count($extra_hymn_rows) + 1,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
     >
         <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
+        <input type="hidden" name="hymn_row_order" id="hymn_row_order" value="<?php echo htmlspecialchars(json_encode(array_values($submitted_hymn_row_order), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
         <?php if ($hymn_suggestions !== []): ?>
             <datalist id="hymn-options">
                 <?php foreach ($hymn_suggestions as $suggestion): ?>
                     <option value="<?php echo htmlspecialchars($suggestion, ENT_QUOTES, 'UTF-8'); ?>"></option>
-                <?php endforeach; ?>
-            </datalist>
-        <?php endif; ?>
-        <?php if ($leaders !== []): ?>
-            <datalist id="leader-options">
-                <?php foreach ($leaders as $leader): ?>
-                    <?php $leader_last_name = trim((string) ($leader['last_name'] ?? '')); ?>
-                    <?php if ($leader_last_name !== ''): ?>
-                        <option value="<?php echo htmlspecialchars($leader_last_name, ENT_QUOTES, 'UTF-8'); ?>"></option>
-                    <?php endif; ?>
                 <?php endforeach; ?>
             </datalist>
         <?php endif; ?>
@@ -1706,10 +2033,10 @@ include 'includes/header.php';
                             </select>
                         </div>
                     </div>
-                    <?php if ($selected_option_is_sunday && $selected_option_previous_thursday_label !== null): ?>
+                    <?php if ($copy_service_config !== null): ?>
                         <label class="service-card-checkbox">
-                            <input type="checkbox" id="copy_to_previous_thursday" name="copy_to_previous_thursday" value="1"<?php echo isset($request_data['copy_to_previous_thursday']) ? ' checked' : ''; ?>>
-                            <span>Copy this service to the previous Thursday (<?php echo htmlspecialchars($selected_option_previous_thursday_label, ENT_QUOTES, 'UTF-8'); ?>)?</span>
+                            <input type="checkbox" id="<?php echo htmlspecialchars((string) $copy_service_config['toggle_name'], ENT_QUOTES, 'UTF-8'); ?>" name="<?php echo htmlspecialchars((string) $copy_service_config['toggle_name'], ENT_QUOTES, 'UTF-8'); ?>" value="1"<?php echo isset($request_data[(string) $copy_service_config['toggle_name']]) ? ' checked' : ''; ?>>
+                            <span><?php echo htmlspecialchars((string) $copy_service_config['toggle_label'], ENT_QUOTES, 'UTF-8'); ?> (<?php echo htmlspecialchars((string) $copy_service_config['secondary_date_label'], ENT_QUOTES, 'UTF-8'); ?>)?</span>
                         </label>
                     <?php endif; ?>
                 </div>
@@ -1817,41 +2144,45 @@ include 'includes/header.php';
                     <?php if ($hymn_field_definitions !== []): ?>
                         <div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>
                     <?php endif; ?>
-                    <?php if ($hymn_field_definitions !== []): ?>
-                        <?php foreach ($hymn_field_definitions as $hymn_field): ?>
-                            <?php $hymn_index = (int) $hymn_field['index']; ?>
-                            <div class="service-card-hymn-row">
-                                <input type="text" id="hymn_<?php echo $hymn_index; ?>" name="hymn_<?php echo $hymn_index; ?>" value="<?php echo htmlspecialchars($selected_hymns[$hymn_index], ENT_QUOTES, 'UTF-8'); ?>" placeholder="<?php echo htmlspecialchars((string) $hymn_field['label'], ENT_QUOTES, 'UTF-8'); ?>" data-list-id="hymn-options" autocomplete="off" class="service-card-hymn-lookup">
-                                <?php if (!empty($hymn_field['toggle_name'])): ?>
-                                    <label class="service-card-hymn-inline-toggle" for="<?php echo htmlspecialchars((string) $hymn_field['toggle_name'], ENT_QUOTES, 'UTF-8'); ?>">
-                                        <input
-                                            type="checkbox"
-                                            id="<?php echo htmlspecialchars((string) $hymn_field['toggle_name'], ENT_QUOTES, 'UTF-8'); ?>"
-                                            name="<?php echo htmlspecialchars((string) $hymn_field['toggle_name'], ENT_QUOTES, 'UTF-8'); ?>"
-                                            value="1"
-                                            <?php echo isset($request_data[(string) $hymn_field['toggle_name']]) ? 'checked' : ''; ?>
-                                        >
-                                    </label>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
                 </div>
             </section>
 
             <section class="service-card-panel">
-                <label class="service-card-label" for="preacher">Leader</label>
-                <input type="text" id="preacher" name="preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Fenker" list="leader-options">
-                <div class="service-card-optional-field<?php echo isset($request_data['copy_to_previous_thursday']) ? ' is-visible' : ''; ?>" id="thursday-preacher-wrap">
-                    <label class="service-card-label" for="thursday_preacher">Thursday Leader</label>
-                    <input type="text" id="thursday_preacher" name="thursday_preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_thursday_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Blank = same as Sunday" list="leader-options">
+                <label class="service-card-label" for="preacher"><?php echo htmlspecialchars((string) ($copy_service_config['primary_label'] ?? 'Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
+                <div class="service-card-suggestion-anchor">
+                    <input type="text" id="preacher" name="preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Fenker" autocomplete="off">
+                    <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-leader-suggestion-list" hidden></div>
+                </div>
+                <div class="service-card-optional-field<?php echo $copy_service_config !== null && isset($request_data[(string) $copy_service_config['toggle_name']]) ? ' is-visible' : ''; ?>" id="secondary-preacher-wrap">
+                    <label class="service-card-label" for="secondary_preacher"><?php echo htmlspecialchars((string) ($copy_service_config['secondary_label'] ?? 'Second Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
+                    <div class="service-card-suggestion-anchor">
+                        <input type="text" id="secondary_preacher" name="secondary_preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_secondary_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="<?php echo htmlspecialchars((string) ($copy_service_config['secondary_placeholder'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" autocomplete="off">
+                        <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-secondary-leader-suggestion-list" hidden></div>
+                    </div>
                 </div>
             </section>
         </div>
     </form>
     <div class="service-card-actions">
-        <button type="button" class="clear-list-button" onclick="oflcClearPlanner(document.getElementById('add-service-form'));">Clear Service</button>
-        <button type="submit" name="add_service" value="1" class="add-hymn-button" form="add-service-form">Add Service</button>
+        <div class="service-card-actions-fill" id="fill-hymns-controls">
+            <div class="service-card-fill-row">
+                <input type="hidden" id="fill_hymns_service_id" value="">
+                <div class="service-card-suggestion-anchor service-card-fill-anchor">
+                    <button type="button" id="fill_hymns_service_label" class="service-card-selectlike">
+                        <span class="service-card-selectlike-label">Select matching service</span>
+                        <span class="service-card-selectlike-arrow" aria-hidden="true">&#9662;</span>
+                    </button>
+                    <div class="service-card-suggestion-list service-card-suggestion-list-capped-three js-fill-hymns-suggestion-list" hidden></div>
+                </div>
+                <button type="button" class="fill-hymns-button" id="fill_hymns_button">Fill Hymns</button>
+                <button type="button" class="clear-list-button" id="clear_hymns_button">Clear Hymns</button>
+            </div>
+            <div class="service-card-fill-note">Fill hymns from a previous year.</div>
+        </div>
+        <div class="service-card-actions-buttons">
+            <button type="button" class="clear-list-button" id="clear_service_button" onclick="oflcClearPlanner(document.getElementById('add-service-form'));">Clear Service</button>
+            <button type="submit" name="add_service" value="1" class="add-hymn-button" id="add_service_button" form="add-service-form">Add Service</button>
+        </div>
     </div>
 
     <?php if (false): ?>
@@ -2057,12 +2388,27 @@ window.oflcInitializePlannerUI = function (root) {
     var newObservanceColorWrap = root.querySelector('#new-observance-color-wrap');
     var newObservanceColorSelect = root.querySelector('#new_observance_color');
     var readingsPane = root.querySelector('#service-card-readings');
-    var copyToPreviousThursdayToggle = root.querySelector('#copy_to_previous_thursday');
-    var thursdayPreacherWrap = root.querySelector('#thursday-preacher-wrap');
+    var copyServiceToggle = root.querySelector('#copy_to_previous_thursday') || root.querySelector('#copy_to_upcoming_sunday');
+    var primaryLeaderInput = root.querySelector('#preacher');
+    var primaryLeaderSuggestionList = root.querySelector('.js-leader-suggestion-list');
+    var secondaryLeaderInput = root.querySelector('#secondary_preacher');
+    var secondaryLeaderSuggestionList = root.querySelector('.js-secondary-leader-suggestion-list');
+    var secondaryPreacherWrap = root.querySelector('#secondary-preacher-wrap');
+    var hymnRowOrderInput = root.querySelector('#hymn_row_order');
+    var fillHymnsIdInput = root.querySelector('#fill_hymns_service_id');
+    var fillHymnsLabelInput = root.querySelector('#fill_hymns_service_label');
+    var fillHymnsSuggestionList = root.querySelector('.js-fill-hymns-suggestion-list');
+    var fillHymnsButton = root.querySelector('#fill_hymns_button');
+    var clearHymnsButton = root.querySelector('#clear_hymns_button');
+    var clearServiceButton = root.querySelector('#clear_service_button');
+    var addServiceButton = root.querySelector('#add_service_button');
     var hymnSuggestionsId = form ? (form.getAttribute('data-hymn-suggestions-id') || 'hymn-options') : 'hymn-options';
     var hymnDefinitionsByService = {};
     var serviceSettingCatalog = { by_id: {}, name_lookup: {} };
+    var leaderCatalog = { by_id: {}, name_lookup: {}, suggestions: [] };
     var observanceCatalog = { by_id: {}, name_lookup: {} };
+    var hymnFillTemplates = [];
+    var matchingHymnFillTemplates = [];
     var dateObservanceSuggestions = [];
     var allObservanceSuggestions = [];
     var selectedReadingSetId = form ? (form.getAttribute('data-selected-reading-set-id') || '') : '';
@@ -2075,7 +2421,10 @@ window.oflcInitializePlannerUI = function (root) {
     var hymnState = {
         hymns: {},
         opening_processional: false,
-        closing_recessional: false
+        closing_recessional: false,
+        extra_rows: [],
+        order: [],
+        next_extra_id: 1
     };
     var datePreviewTimer = null;
 
@@ -2119,7 +2468,7 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function findObservanceDetailByName(name) {
-        var normalizedName = String(name || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}\)\s*$/, '').trim().toLowerCase();
+        var normalizedName = String(name || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
         var observanceId;
 
         if (normalizedName === '' || !observanceCatalog.name_lookup) {
@@ -2492,6 +2841,12 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     try {
+        leaderCatalog = JSON.parse(form.getAttribute('data-leader-catalog') || '{"by_id":{},"name_lookup":{},"suggestions":[]}');
+    } catch (error) {
+        leaderCatalog = { by_id: {}, name_lookup: {}, suggestions: [] };
+    }
+
+    try {
         observanceCatalog = JSON.parse(form.getAttribute('data-observance-catalog') || '{"by_id":{},"name_lookup":{}}');
     } catch (error) {
         observanceCatalog = { by_id: {}, name_lookup: {} };
@@ -2535,26 +2890,281 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     try {
-        hymnState = JSON.parse(form.getAttribute('data-initial-hymn-state') || '{"hymns":{},"opening_processional":false,"closing_recessional":false}');
+        hymnFillTemplates = JSON.parse(form.getAttribute('data-hymn-fill-templates') || '[]');
+    } catch (error) {
+        hymnFillTemplates = [];
+    }
+
+    try {
+        hymnState = JSON.parse(form.getAttribute('data-initial-hymn-state') || '{"hymns":{},"opening_processional":false,"closing_recessional":false,"extra_rows":[],"order":[],"next_extra_id":1}');
     } catch (error) {
         hymnState = {
             hymns: {},
             opening_processional: false,
-            closing_recessional: false
+            closing_recessional: false,
+            extra_rows: [],
+            order: [],
+            next_extra_id: 1
         };
     }
 
-    function captureHymnState() {
-        var inputs = hymnPane.querySelectorAll('.service-card-hymn-lookup');
-        var openingProcessional = document.getElementById('opening_processional');
-        var closingRecessional = document.getElementById('closing_recessional');
+    function getLeaderSuggestionSource(query) {
+        var normalizedQuery = String(query || '').trim().toLowerCase();
+        var source = Array.isArray(leaderCatalog.suggestions) ? leaderCatalog.suggestions.slice() : [];
 
-        Array.prototype.forEach.call(inputs, function (input) {
-            hymnState.hymns[input.name.replace('hymn_', '')] = input.value;
+        if (normalizedQuery !== '') {
+            source = source.filter(function (name) {
+                return String(name || '').toLowerCase().indexOf(normalizedQuery) !== -1;
+            });
+        }
+
+        return source.filter(function (name, index) {
+            return String(name || '').trim() !== '' && source.indexOf(name) === index;
+        });
+    }
+
+    function renderSimpleSuggestionOptions(input, list, options, onSelect) {
+        if (!list) {
+            return;
+        }
+
+        list.innerHTML = '';
+        Array.prototype.forEach.call(options, function (name) {
+            var button = document.createElement('button');
+
+            button.type = 'button';
+            button.className = 'service-card-suggestion-item';
+            button.textContent = name;
+            button.addEventListener('mousedown', function (event) {
+                event.preventDefault();
+            });
+            button.addEventListener('click', function () {
+                onSelect(name);
+                list.hidden = true;
+                list.classList.remove('is-visible');
+                list.innerHTML = '';
+                input.focus();
+                if (typeof input.setSelectionRange === 'function') {
+                    input.setSelectionRange(input.value.length, input.value.length);
+                }
+            });
+
+            list.appendChild(button);
         });
 
+        list.hidden = options.length === 0;
+        list.classList.toggle('is-visible', options.length > 0);
+    }
+
+    function bindLeaderSuggestionInput(input, list) {
+        if (!input || !list) {
+            return;
+        }
+
+        function showSuggestions(preferAll) {
+            var query = preferAll ? '' : input.value;
+            renderSimpleSuggestionOptions(input, list, getLeaderSuggestionSource(query), function (name) {
+                input.value = name;
+            });
+        }
+
+        input.addEventListener('input', function () {
+            showSuggestions(false);
+        });
+        input.addEventListener('focus', function () {
+            showSuggestions(true);
+        });
+        input.addEventListener('click', function () {
+            showSuggestions(true);
+        });
+        input.addEventListener('blur', function () {
+            window.setTimeout(function () {
+                list.hidden = true;
+                list.classList.remove('is-visible');
+                list.innerHTML = '';
+            }, 120);
+        });
+    }
+
+    function normalizeHymnState(serviceId) {
+        var definitions = hymnDefinitionsByService[serviceId] || [];
+        var baseKeys = definitions.map(function (definition) {
+            return 'base:' + String(definition.index);
+        });
+        var extraKeyMap = {};
+        var order = [];
+
+        if (!hymnState || typeof hymnState !== 'object') {
+            hymnState = {};
+        }
+        if (!hymnState.hymns || typeof hymnState.hymns !== 'object') {
+            hymnState.hymns = {};
+        }
+        if (!Array.isArray(hymnState.extra_rows)) {
+            hymnState.extra_rows = [];
+        }
+        hymnState.extra_rows = hymnState.extra_rows.filter(function (row) {
+            return row && row.key;
+        }).map(function (row) {
+            return {
+                key: String(row.key),
+                value: String(row.value || ''),
+                slot_name: row.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+            };
+        });
+        hymnState.extra_rows.forEach(function (row) {
+            extraKeyMap[row.key] = true;
+        });
+
+        if (!Array.isArray(hymnState.order)) {
+            hymnState.order = [];
+        }
+
+        hymnState.order.forEach(function (key) {
+            key = String(key || '');
+            if (!key) {
+                return;
+            }
+            if (baseKeys.indexOf(key) !== -1 || extraKeyMap[key]) {
+                if (order.indexOf(key) === -1) {
+                    order.push(key);
+                }
+            }
+        });
+
+        baseKeys.forEach(function (key) {
+            if (order.indexOf(key) === -1) {
+                order.push(key);
+            }
+        });
+        hymnState.extra_rows.forEach(function (row) {
+            if (order.indexOf(row.key) === -1) {
+                order.push(row.key);
+            }
+        });
+
+        hymnState.order = order;
+        hymnState.next_extra_id = Math.max(
+            parseInt(hymnState.next_extra_id || '1', 10) || 1,
+            hymnState.extra_rows.length + 1
+        );
+
+        if (hymnRowOrderInput) {
+            hymnRowOrderInput.value = JSON.stringify(hymnState.order);
+        }
+
+        return definitions;
+    }
+
+    function findExtraHymnRow(key) {
+        return hymnState.extra_rows.find(function (row) {
+            return String(row.key) === String(key);
+        }) || null;
+    }
+
+    function hasSelectedHymns() {
+        var hasBaseHymn = Object.keys(hymnState.hymns || {}).some(function (key) {
+            return String((hymnState.hymns || {})[key] || '').trim() !== '';
+        });
+        var hasExtraHymn = (hymnState.extra_rows || []).some(function (row) {
+            return String(row && row.value ? row.value : '').trim() !== '';
+        });
+
+        return hasBaseHymn || hasExtraHymn;
+    }
+
+    function hasMeaningfulServiceState() {
+        var observanceValue = String(observanceInput && observanceInput.value ? observanceInput.value : '').trim();
+        var serviceSettingValue = String(serviceSettingInput && serviceSettingInput.value ? serviceSettingInput.value : '').trim();
+        var primaryLeaderValue = String(primaryLeaderInput && primaryLeaderInput.value ? primaryLeaderInput.value : '').trim();
+        var secondaryLeaderValue = String(secondaryLeaderInput && secondaryLeaderInput.value ? secondaryLeaderInput.value : '').trim();
+        var hasSelectedReading = String(selectedReadingSetId || '').trim() !== '';
+        var hasSelectedPassionReading = String(selectedPassionReadingId || '').trim() !== '';
+        var hasSelectedCatechism = (selectedSmallCatechismLabels || []).some(function (label) {
+            return String(label || '').trim() !== '';
+        });
+        var hasReadingDraft = (readingDraftState || []).some(function (draft) {
+            return !!draft && ['psalm', 'old_testament', 'epistle', 'gospel'].some(function (field) {
+                return String(draft[field] || '').trim() !== '';
+            });
+        });
+        var hasNewObservanceColor = !!(newObservanceColorWrap
+            && newObservanceColorWrap.classList.contains('is-visible')
+            && newObservanceColorSelect
+            && String(newObservanceColorSelect.value || '').trim() !== '');
+        var hasCopyToggle = !!(copyServiceToggle && copyServiceToggle.checked);
+
+        return observanceValue !== ''
+            || serviceSettingValue !== ''
+            || primaryLeaderValue !== ''
+            || secondaryLeaderValue !== ''
+            || hasSelectedReading
+            || hasSelectedPassionReading
+            || hasSelectedCatechism
+            || hasReadingDraft
+            || hasNewObservanceColor
+            || hasCopyToggle
+            || hasSelectedHymns();
+    }
+
+    function syncClearHymnsButtonState() {
+        if (!clearHymnsButton) {
+            return;
+        }
+
+        clearHymnsButton.disabled = !hasSelectedHymns();
+    }
+
+    function syncPrimaryActionButtonsState() {
+        var hasMeaningfulState = hasMeaningfulServiceState();
+
+        if (clearServiceButton) {
+            clearServiceButton.disabled = !hasMeaningfulState;
+        }
+        if (addServiceButton) {
+            addServiceButton.disabled = !hasMeaningfulState;
+        }
+    }
+
+    function captureHymnState() {
+        var hymnRows = hymnPane.querySelectorAll('.service-card-hymn-row');
+        var openingProcessional = document.getElementById('opening_processional');
+        var closingRecessional = document.getElementById('closing_recessional');
+        var nextExtraRows = [];
+        var nextOrder = [];
+
+        Array.prototype.forEach.call(hymnRows, function (row) {
+            var rowKey = row.getAttribute('data-row-key') || '';
+            var input = row.querySelector('.service-card-hymn-lookup');
+
+            if (!rowKey || !input) {
+                return;
+            }
+
+            nextOrder.push(rowKey);
+            if (rowKey.indexOf('base:') === 0) {
+                hymnState.hymns[rowKey.replace('base:', '')] = input.value;
+                return;
+            }
+
+            nextExtraRows.push({
+                key: rowKey,
+                value: input.value,
+                slot_name: row.getAttribute('data-extra-slot-name') === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+            });
+        });
+
+        hymnState.extra_rows = nextExtraRows;
+        hymnState.order = nextOrder;
         hymnState.opening_processional = !!(openingProcessional && openingProcessional.checked);
         hymnState.closing_recessional = !!(closingRecessional && closingRecessional.checked);
+
+        if (hymnRowOrderInput) {
+            hymnRowOrderInput.value = JSON.stringify(hymnState.order);
+        }
+
+        syncClearHymnsButtonState();
+        syncPrimaryActionButtonsState();
     }
 
     function bindHymnLookupBehavior(scope) {
@@ -2566,14 +3176,12 @@ window.oflcInitializePlannerUI = function (root) {
             });
 
             input.addEventListener('input', function () {
-                hymnState.hymns[input.name.replace('hymn_', '')] = input.value;
-
                 if (input.value.trim() === '') {
                     input.removeAttribute('list');
-                    return;
+                } else {
+                    input.setAttribute('list', hymnSuggestionsId);
                 }
-
-                input.setAttribute('list', hymnSuggestionsId);
+                captureHymnState();
             });
 
             input.addEventListener('blur', function () {
@@ -2584,56 +3192,483 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
 
-    function captureReadingDraftState() {
-        var readingDraftInputs = readingsPane.querySelectorAll('.js-new-reading-set-input');
+    function bindExtraHymnSlotBehavior(scope) {
+        var slotInputs = scope.querySelectorAll('.js-extra-hymn-slot-input');
 
-        Array.prototype.forEach.call(readingDraftInputs, function (input) {
-            var index = parseInt(input.getAttribute('data-draft-index') || '0', 10);
-            var field = input.getAttribute('data-draft-field') || '';
-            if (!index || !field || !readingDraftState[index - 1]) {
-                return;
+        Array.prototype.forEach.call(slotInputs, function (input) {
+            var anchor = input.closest('.service-card-suggestion-anchor');
+            var list = anchor ? anchor.querySelector('.js-extra-hymn-slot-suggestion-list') : null;
+            var hidden = anchor ? anchor.querySelector('.js-extra-hymn-slot-hidden') : null;
+            var currentServiceId = serviceSettingIdInput ? (serviceSettingIdInput.value || '') : '';
+
+            function syncSlot(value) {
+                var slotValue = String(value || '').trim().toLowerCase() === 'distribution' ? 'Distribution Hymn' : 'Other Hymn';
+                var row = input.closest('.service-card-hymn-row');
+                var previousSlotValue = row ? (row.getAttribute('data-extra-slot-name') || 'Other Hymn') : 'Other Hymn';
+
+                input.value = slotValue === 'Distribution Hymn' ? 'Distribution' : 'Other';
+                if (hidden) {
+                    hidden.value = slotValue;
+                }
+                if (row) {
+                    row.setAttribute('data-slot-name', slotValue);
+                    row.setAttribute('data-extra-slot-name', slotValue);
+                }
+                captureHymnState();
+
+                return previousSlotValue !== slotValue;
             }
 
-            readingDraftState[index - 1][field] = input.value;
+            function closeSlotOptions() {
+                if (list) {
+                    list.hidden = true;
+                    list.classList.remove('is-visible');
+                    list.innerHTML = '';
+                }
+            }
+
+            function syncSlotAndRefresh(value) {
+                var slotChanged = syncSlot(value);
+
+                closeSlotOptions();
+                if (slotChanged) {
+                    renderHymnPane(currentServiceId);
+                }
+            }
+
+            function showSlotOptions() {
+                renderSimpleSuggestionOptions(input, list, ['Distribution', 'Other'], function (name) {
+                    syncSlotAndRefresh(name);
+                });
+            }
+
+            input.addEventListener('focus', showSlotOptions);
+            input.addEventListener('click', showSlotOptions);
+            input.addEventListener('input', function () {
+                showSlotOptions();
+            });
+            input.addEventListener('change', function () {
+                syncSlotAndRefresh(input.value);
+            });
+            input.addEventListener('blur', function () {
+                window.setTimeout(function () {
+                    syncSlotAndRefresh(input.value);
+                }, 120);
+            });
         });
     }
 
+    function bindHymnDragBehavior(scope, serviceId) {
+        var draggedRowKey = null;
+
+        Array.prototype.forEach.call(scope.querySelectorAll('.service-card-hymn-row'), function (row) {
+            var handle = row.querySelector('.service-card-drag-handle');
+
+            if (!handle) {
+                return;
+            }
+
+            handle.addEventListener('dragstart', function (event) {
+                draggedRowKey = row.getAttribute('data-row-key');
+                row.classList.add('is-dragging');
+                if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', draggedRowKey || '');
+                }
+            });
+
+            handle.addEventListener('dragend', function () {
+                draggedRowKey = null;
+                row.classList.remove('is-dragging');
+                Array.prototype.forEach.call(scope.querySelectorAll('.service-card-hymn-row'), function (candidate) {
+                    candidate.classList.remove('is-drop-target');
+                });
+            });
+
+            row.addEventListener('dragover', function (event) {
+                event.preventDefault();
+                row.classList.add('is-drop-target');
+            });
+
+            row.addEventListener('dragleave', function () {
+                row.classList.remove('is-drop-target');
+            });
+
+            row.addEventListener('drop', function (event) {
+                var targetKey;
+                var fromIndex;
+                var toIndex;
+
+                event.preventDefault();
+                row.classList.remove('is-drop-target');
+                targetKey = row.getAttribute('data-row-key');
+
+                if (!draggedRowKey || !targetKey || draggedRowKey === targetKey) {
+                    return;
+                }
+
+                captureHymnState();
+                fromIndex = hymnState.order.indexOf(draggedRowKey);
+                toIndex = hymnState.order.indexOf(targetKey);
+                if (fromIndex === -1 || toIndex === -1) {
+                    return;
+                }
+
+                hymnState.order.splice(fromIndex, 1);
+                hymnState.order.splice(toIndex, 0, draggedRowKey);
+                renderHymnPane(serviceId);
+            });
+        });
+    }
+
+    function addExtraHymnRow(defaultSlotName) {
+        hymnState.extra_rows.push({
+            key: 'extra:' + String(hymnState.next_extra_id || 1),
+            value: '',
+            slot_name: defaultSlotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+        });
+        hymnState.next_extra_id = (parseInt(hymnState.next_extra_id || '1', 10) || 1) + 1;
+        hymnState.order.push(hymnState.extra_rows[hymnState.extra_rows.length - 1].key);
+    }
+
+    function setFillHymnsLabel(label) {
+        var labelNode;
+
+        if (!fillHymnsLabelInput) {
+            return;
+        }
+
+        labelNode = fillHymnsLabelInput.querySelector('.service-card-selectlike-label');
+        if (!labelNode) {
+            return;
+        }
+
+        labelNode.textContent = String(label || '').trim() !== '' ? String(label) : 'Select matching service';
+    }
+
+    function populateFillHymnsOptions() {
+        var matchingObservance = findObservanceDetailByName(observanceInput.value);
+        var serviceSettingDetail = findServiceSettingDetailByName(serviceSettingInput.value);
+        var currentSelectedId = String(fillHymnsIdInput && fillHymnsIdInput.value ? fillHymnsIdInput.value : '');
+        var observanceId = matchingObservance && matchingObservance.id ? parseInt(matchingObservance.id, 10) : 0;
+        var observanceName = String(observanceInput.value || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
+        var serviceSettingId = serviceSettingDetail && serviceSettingDetail.id ? parseInt(serviceSettingDetail.id, 10) : 0;
+        var hasSelectedService = serviceSettingId > 0;
+        var preferredOptions = [];
+        var fallbackOptions = [];
+        var labelsSeen = {};
+
+        if (!fillHymnsLabelInput || !fillHymnsIdInput) {
+            return;
+        }
+
+        if (hasSelectedService) {
+            hymnFillTemplates.forEach(function (template) {
+                var templateObservanceId = parseInt(template && template.liturgical_calendar_id ? template.liturgical_calendar_id : '0', 10);
+                var templateSettingId = parseInt(template && template.service_setting_id ? template.service_setting_id : '0', 10);
+                var templateName = String(template && template.observance_name ? template.observance_name : '').trim().toLowerCase();
+                var observanceMatches = observanceId > 0 ? templateObservanceId === observanceId : (observanceName !== '' && templateName === observanceName);
+                var serviceMatches = templateSettingId === serviceSettingId;
+
+                if (observanceMatches) {
+                    if (!labelsSeen[String(template.label || '').toLowerCase()]) {
+                        labelsSeen[String(template.label || '').toLowerCase()] = true;
+                        if (serviceMatches) {
+                            preferredOptions.push(template);
+                        } else {
+                            fallbackOptions.push(template);
+                        }
+                    }
+                }
+            });
+        }
+
+        matchingHymnFillTemplates = preferredOptions.concat(fallbackOptions);
+        if (currentSelectedId !== '' && matchingHymnFillTemplates.some(function (template) {
+            return String(template && template.id ? template.id : '') === currentSelectedId;
+        })) {
+            fillHymnsIdInput.value = currentSelectedId;
+            setFillHymnsLabel(String((matchingHymnFillTemplates.find(function (template) {
+                return String(template && template.id ? template.id : '') === currentSelectedId;
+            }) || {}).label || ''));
+        } else {
+            fillHymnsIdInput.value = '';
+            setFillHymnsLabel('');
+        }
+        fillHymnsLabelInput.disabled = !hasSelectedService || matchingHymnFillTemplates.length === 0;
+        if (fillHymnsButton) {
+            fillHymnsButton.disabled = !hasSelectedService || matchingHymnFillTemplates.length === 0;
+        }
+        if (fillHymnsSuggestionList) {
+            fillHymnsSuggestionList.hidden = true;
+            fillHymnsSuggestionList.classList.remove('is-visible');
+            fillHymnsSuggestionList.innerHTML = '';
+        }
+    }
+
+    function applyHymnFillTemplate(serviceId) {
+        var template = hymnFillTemplates.find(function (candidate) {
+            return String(candidate && candidate.id ? candidate.id : '') === String(serviceId || '');
+        });
+        var definitions;
+        var orderedHymns;
+        var nextExtraRows = [];
+
+        if (!template) {
+            return;
+        }
+
+        definitions = normalizeHymnState(serviceSettingIdInput.value || '');
+        orderedHymns = Array.isArray(template.hymns) ? template.hymns.slice() : [];
+
+        hymnState.hymns = {};
+        hymnState.order = [];
+        hymnState.opening_processional = false;
+        hymnState.closing_recessional = false;
+
+        definitions.forEach(function (definition, index) {
+            var hymn = orderedHymns[index] || null;
+            hymnState.hymns[String(definition.index)] = hymn && hymn.label ? String(hymn.label) : '';
+            hymnState.order.push('base:' + String(definition.index));
+        });
+
+        orderedHymns.slice(definitions.length).forEach(function (hymn) {
+            var key = 'extra:' + String(hymnState.next_extra_id || 1);
+            nextExtraRows.push({
+                key: key,
+                value: hymn && hymn.label ? String(hymn.label) : '',
+                slot_name: hymn && hymn.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+            });
+            hymnState.order.push(key);
+            hymnState.next_extra_id = (parseInt(hymnState.next_extra_id || '1', 10) || 1) + 1;
+        });
+
+        hymnState.extra_rows = nextExtraRows;
+        renderHymnPane(serviceSettingIdInput.value || '');
+    }
+
+    function clearHymnStateForCurrentService() {
+        var serviceId = serviceSettingIdInput.value || '';
+
+        normalizeHymnState(serviceId);
+        hymnState.hymns = {};
+        hymnState.extra_rows = [];
+        hymnState.order = [];
+        hymnState.opening_processional = false;
+        hymnState.closing_recessional = false;
+        if (fillHymnsIdInput) {
+            fillHymnsIdInput.value = '';
+        }
+        setFillHymnsLabel('');
+        if (fillHymnsSuggestionList) {
+            fillHymnsSuggestionList.hidden = true;
+            fillHymnsSuggestionList.classList.remove('is-visible');
+            fillHymnsSuggestionList.innerHTML = '';
+        }
+        renderHymnPane(serviceId);
+        populateFillHymnsOptions();
+        syncPrimaryActionButtonsState();
+    }
+
+    function getFillHymnsSuggestionSource() {
+        return matchingHymnFillTemplates.slice();
+    }
+
+    function renderFillHymnsSuggestionOptions() {
+        var source = getFillHymnsSuggestionSource();
+
+        if (!fillHymnsSuggestionList || !fillHymnsLabelInput || !fillHymnsIdInput) {
+            return;
+        }
+
+        fillHymnsSuggestionList.innerHTML = '';
+        source.forEach(function (template) {
+            var button = document.createElement('button');
+
+            button.type = 'button';
+            button.className = 'service-card-suggestion-item';
+            button.textContent = String(template && template.label ? template.label : '');
+            button.addEventListener('mousedown', function (event) {
+                event.preventDefault();
+            });
+            button.addEventListener('click', function () {
+                setFillHymnsLabel(String(template && template.label ? template.label : ''));
+                fillHymnsIdInput.value = String(template && template.id ? template.id : '');
+                fillHymnsSuggestionList.hidden = true;
+                fillHymnsSuggestionList.classList.remove('is-visible');
+                fillHymnsSuggestionList.innerHTML = '';
+                fillHymnsLabelInput.focus();
+            });
+
+            fillHymnsSuggestionList.appendChild(button);
+        });
+
+        fillHymnsSuggestionList.hidden = source.length === 0;
+        fillHymnsSuggestionList.classList.toggle('is-visible', source.length > 0);
+    }
+
     function renderHymnPane(serviceId) {
-        var definitions = hymnDefinitionsByService[serviceId] || [];
+        var definitions = normalizeHymnState(serviceId);
+        var orderedBaseKeys = [];
+        var baseRankByKey = {};
+        var rowMetaByKey = {};
+        var distributionIndex = 0;
         var html = '';
+
+        hymnState.order.forEach(function (rowKey) {
+            if (rowKey.indexOf('base:') === 0) {
+                orderedBaseKeys.push(rowKey);
+            }
+        });
+        orderedBaseKeys.forEach(function (rowKey, index) {
+            baseRankByKey[rowKey] = index;
+        });
 
         if (definitions.length > 0) {
             html += '<div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>';
         }
 
-        Array.prototype.forEach.call(definitions, function (definition) {
-            var hymnIndex = String(definition.index);
-            var value = hymnState.hymns[hymnIndex] || '';
-            var toggleHtml = '';
+        hymnState.order.forEach(function (rowKey) {
+            var meta;
 
-            if (definition.toggle_name) {
-                var isChecked = definition.toggle_name === 'opening_processional'
-                    ? hymnState.opening_processional
-                    : hymnState.closing_recessional;
+            if (rowKey.indexOf('base:') === 0) {
+                var definition = definitions[baseRankByKey[rowKey]];
+                var label;
+                var slotName;
 
-                toggleHtml =
-                    '<label class="service-card-hymn-inline-toggle" for="' + definition.toggle_name + '">' +
-                        '<input type="checkbox" id="' + definition.toggle_name + '" name="' + definition.toggle_name + '" value="1"' + (isChecked ? ' checked' : '') + '>' +
-                    '</label>';
+                if (!definition) {
+                    return;
+                }
+                slotName = String(definition.slot_name || '');
+                if (definition.toggle_name === 'opening_processional' && hymnState.opening_processional) {
+                    slotName = 'Processional Hymn';
+                }
+                if (definition.toggle_name === 'closing_recessional' && hymnState.closing_recessional) {
+                    slotName = 'Recessional Hymn';
+                }
+
+                if (slotName === 'Distribution Hymn') {
+                    distributionIndex += 1;
+                    label = 'Distribution Hymn ' + String(distributionIndex);
+                } else {
+                    label = String(definition.label || '');
+                }
+
+                rowMetaByKey[rowKey] = {
+                    kind: 'base',
+                    originalIndex: rowKey.replace('base:', ''),
+                    value: hymnState.hymns[rowKey.replace('base:', '')] || '',
+                    toggleName: definition.toggle_name || '',
+                    label: label,
+                    slotName: slotName
+                };
+                return;
             }
 
+            var extraRow = findExtraHymnRow(rowKey);
+            if (!extraRow) {
+                return;
+            }
+
+            if (extraRow.slot_name === 'Distribution Hymn') {
+                distributionIndex += 1;
+            }
+
+            rowMetaByKey[rowKey] = {
+                kind: 'extra',
+                extraRow: extraRow,
+                label: extraRow.slot_name === 'Distribution Hymn'
+                    ? 'Distribution Hymn ' + String(distributionIndex)
+                    : 'Additional hymn',
+                slotName: extraRow.slot_name
+            };
+        });
+
+        hymnState.order.forEach(function (rowKey) {
+            var originalIndex;
+            var value;
+            var toggleHtml = '';
+
+            meta = rowMetaByKey[rowKey];
+            if (!meta) {
+                return;
+            }
+
+            if (meta.kind === 'base') {
+                originalIndex = meta.originalIndex;
+                value = meta.value;
+
+                if (meta.toggleName) {
+                    var isChecked = meta.toggleName === 'opening_processional'
+                        ? hymnState.opening_processional
+                        : hymnState.closing_recessional;
+
+                    toggleHtml =
+                        '<label class="service-card-hymn-inline-toggle" for="' + meta.toggleName + '">' +
+                            '<input type="checkbox" id="' + meta.toggleName + '" name="' + meta.toggleName + '" value="1"' + (isChecked ? ' checked' : '') + '>' +
+                        '</label>';
+                }
+
+                html +=
+                    '<div class="service-card-hymn-row" data-row-key="' + rowKey + '" data-row-kind="base" draggable="false">' +
+                        '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
+                        '<input type="text" id="hymn_' + originalIndex + '" name="hymn_' + originalIndex + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup">' +
+                        toggleHtml +
+                    '</div>';
+                return;
+            }
+
+            var extraRow = meta.extraRow;
+
             html +=
-                '<div class="service-card-hymn-row">' +
-                    '<input type="text" id="hymn_' + hymnIndex + '" name="hymn_' + hymnIndex + '" value="' + value.replace(/"/g, '&quot;') + '" placeholder="' + definition.label.replace(/"/g, '&quot;') + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup">' +
-                    toggleHtml +
+                '<div class="service-card-hymn-row service-card-hymn-row-extra" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-kind="extra" data-extra-slot-name="' + escapeHtml(extraRow.slot_name) + '" data-slot-name="' + escapeHtml(extraRow.slot_name) + '" draggable="false">' +
+                    '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
+                    '<input type="hidden" name="extra_hymn_keys[]" value="' + escapeHtml(extraRow.key) + '">' +
+                    '<input type="text" name="extra_hymn_values[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
+                    '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
+                        '<input type="hidden" class="js-extra-hymn-slot-hidden" name="extra_hymn_slots[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.slot_name) + '">' +
+                        '<input type="text" class="service-card-text service-card-hymn-slot-input js-extra-hymn-slot-input" value="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution' : 'Other') + '" autocomplete="off">' +
+                        '<div class="service-card-suggestion-list js-extra-hymn-slot-suggestion-list" hidden></div>' +
+                    '</div>' +
+                    '<button type="button" class="service-card-remove-hymn-button" data-remove-row-key="' + escapeHtml(extraRow.key) + '" aria-label="Remove hymn">&times;</button>' +
                 '</div>';
         });
 
+        if (definitions.length > 0 || hymnState.extra_rows.length > 0) {
+            html += '<button type="button" class="service-card-hymn-add-link service-card-reading-rubric" id="add-extra-hymn-link">To add an additional hymn, click here</button>';
+        }
         hymnPane.innerHTML = html;
-        bindHymnLookupBehavior(hymnPane);
 
+        bindHymnLookupBehavior(hymnPane);
+        bindExtraHymnSlotBehavior(hymnPane);
+        bindHymnDragBehavior(hymnPane, serviceId);
+
+        var addExtraHymnLink = hymnPane.querySelector('#add-extra-hymn-link');
         var openingProcessional = document.getElementById('opening_processional');
         var closingRecessional = document.getElementById('closing_recessional');
+
+        if (addExtraHymnLink) {
+            addExtraHymnLink.addEventListener('click', function () {
+                captureHymnState();
+                addExtraHymnRow('Other Hymn');
+                renderHymnPane(serviceId);
+            });
+        }
+
+        Array.prototype.forEach.call(hymnPane.querySelectorAll('.service-card-remove-hymn-button'), function (button) {
+            button.addEventListener('click', function () {
+                var rowKey = button.getAttribute('data-remove-row-key') || '';
+
+                captureHymnState();
+                hymnState.extra_rows = hymnState.extra_rows.filter(function (row) {
+                    return String(row.key) !== rowKey;
+                });
+                hymnState.order = hymnState.order.filter(function (key) {
+                    return String(key) !== rowKey;
+                });
+                renderHymnPane(serviceId);
+            });
+        });
 
         if (openingProcessional) {
             openingProcessional.addEventListener('change', function () {
@@ -2646,6 +3681,13 @@ window.oflcInitializePlannerUI = function (root) {
                 hymnState.closing_recessional = closingRecessional.checked;
             });
         }
+
+        if (hymnRowOrderInput) {
+            hymnRowOrderInput.value = JSON.stringify(hymnState.order);
+        }
+
+        syncClearHymnsButtonState();
+        syncPrimaryActionButtonsState();
     }
 
     function updateSummary() {
@@ -2656,6 +3698,8 @@ window.oflcInitializePlannerUI = function (root) {
             summary.innerHTML = '&nbsp;';
             captureHymnState();
             renderHymnPane('');
+            populateFillHymnsOptions();
+            syncPrimaryActionButtonsState();
             return;
         }
 
@@ -2672,14 +3716,32 @@ window.oflcInitializePlannerUI = function (root) {
         summary.textContent = text !== '' ? text : ' ';
         captureHymnState();
         renderHymnPane(String(detail.id));
+        populateFillHymnsOptions();
+        syncPrimaryActionButtonsState();
     }
 
-    function syncThursdayLeaderVisibility() {
-        if (!thursdayPreacherWrap) {
+    function syncSecondaryLeaderVisibility() {
+        if (!secondaryPreacherWrap) {
             return;
         }
 
-        thursdayPreacherWrap.classList.toggle('is-visible', !!(copyToPreviousThursdayToggle && copyToPreviousThursdayToggle.checked));
+        secondaryPreacherWrap.classList.toggle('is-visible', !!(copyServiceToggle && copyServiceToggle.checked));
+    }
+
+    function captureReadingDraftState() {
+        var readingDraftInputs = readingsPane.querySelectorAll('.js-new-reading-set-input');
+
+        Array.prototype.forEach.call(readingDraftInputs, function (input) {
+            var index = parseInt(input.getAttribute('data-draft-index') || '0', 10);
+            var field = input.getAttribute('data-draft-field') || '';
+            if (!index || !field || !readingDraftState[index - 1]) {
+                return;
+            }
+
+            readingDraftState[index - 1][field] = input.value;
+        });
+
+        syncPrimaryActionButtonsState();
     }
 
     function renderNewReadingSetEditor() {
@@ -2803,6 +3865,7 @@ window.oflcInitializePlannerUI = function (root) {
         readingsPane.innerHTML = html;
         bindReadingSelectionBehavior(readingsPane, function (value) {
             selectedReadingSetId = value || '';
+            syncPrimaryActionButtonsState();
         });
         bindSupplementalReadingControls();
     }
@@ -2845,6 +3908,8 @@ window.oflcInitializePlannerUI = function (root) {
                 renderNewReadingSetEditor();
             }
             form.className = form.className.replace(/service-card-color-\w+/g, '').trim() + ' service-card-color-dark';
+            populateFillHymnsOptions();
+            syncPrimaryActionButtonsState();
             return;
         }
 
@@ -2858,6 +3923,8 @@ window.oflcInitializePlannerUI = function (root) {
         }
         renderReadingsPane(detail.reading_sets || []);
         form.className = form.className.replace(/service-card-color-\w+/g, '').trim() + ' ' + (detail.color_class || 'service-card-color-dark');
+        populateFillHymnsOptions();
+        syncPrimaryActionButtonsState();
     }
 
     serviceSettingInput.addEventListener('input', function () {
@@ -2893,8 +3960,11 @@ window.oflcInitializePlannerUI = function (root) {
     observanceInput.addEventListener('blur', function () {
         window.setTimeout(hideObservanceSuggestionOptions, 120);
     });
-    if (copyToPreviousThursdayToggle) {
-        copyToPreviousThursdayToggle.addEventListener('change', syncThursdayLeaderVisibility);
+    if (copyServiceToggle) {
+        copyServiceToggle.addEventListener('change', function () {
+            syncSecondaryLeaderVisibility();
+            syncPrimaryActionButtonsState();
+        });
     }
     if (serviceDateInput) {
         serviceDateInput.addEventListener('change', function () {
@@ -2924,13 +3994,52 @@ window.oflcInitializePlannerUI = function (root) {
             black: 'service-card-color-black',
             white: 'service-card-color-dark'
         })[(newObservanceColorSelect.value || '').trim().toLowerCase()] || 'service-card-color-dark';
+        syncPrimaryActionButtonsState();
     });
-    bindHymnLookupBehavior(document);
+    Array.prototype.forEach.call([primaryLeaderInput, secondaryLeaderInput], function (input) {
+        if (!input) {
+            return;
+        }
+
+        input.addEventListener('input', syncPrimaryActionButtonsState);
+        input.addEventListener('change', syncPrimaryActionButtonsState);
+    });
+    bindLeaderSuggestionInput(primaryLeaderInput, primaryLeaderSuggestionList);
+    bindLeaderSuggestionInput(secondaryLeaderInput, secondaryLeaderSuggestionList);
+    if (fillHymnsLabelInput && fillHymnsSuggestionList && fillHymnsIdInput) {
+        fillHymnsLabelInput.addEventListener('click', function () {
+            if (fillHymnsLabelInput.disabled) {
+                return;
+            }
+            renderFillHymnsSuggestionOptions();
+        });
+        fillHymnsLabelInput.addEventListener('blur', function () {
+            window.setTimeout(function () {
+                fillHymnsSuggestionList.hidden = true;
+                fillHymnsSuggestionList.classList.remove('is-visible');
+                fillHymnsSuggestionList.innerHTML = '';
+            }, 120);
+        });
+    }
+    if (fillHymnsButton && fillHymnsIdInput) {
+        fillHymnsButton.addEventListener('click', function () {
+            if (fillHymnsIdInput.value !== '') {
+                applyHymnFillTemplate(fillHymnsIdInput.value);
+            }
+        });
+    }
+    if (clearHymnsButton) {
+        clearHymnsButton.addEventListener('click', function () {
+            clearHymnStateForCurrentService();
+        });
+    }
     hideServiceSettingSuggestionOptions();
     hideObservanceSuggestionOptions();
     updateSummary();
     updateObservanceDetails(false);
-    syncThursdayLeaderVisibility();
+    syncSecondaryLeaderVisibility();
+    populateFillHymnsOptions();
+    syncPrimaryActionButtonsState();
 };
 
 window.oflcInitializePlannerUI(document);

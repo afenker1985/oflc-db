@@ -10,7 +10,7 @@ function oflc_service_strip_suggestion_marker(string $observanceName): string
         return '';
     }
 
-    return trim((string) (preg_replace('/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}\)\s*$/', '', $observanceName) ?? $observanceName));
+    return trim((string) (preg_replace('/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/', '', $observanceName) ?? $observanceName));
 }
 
 function oflc_service_fetch_observance_detail_from_row(PDO $pdo, array $observance): array

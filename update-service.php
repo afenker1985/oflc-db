@@ -594,7 +594,7 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
 
                 $festivalName = $logicKeyNameMap[$logicKey] ?? oflc_update_humanize_logic_key($logicKey);
                 $festivalDayLabel = $weekdayDate instanceof DateTimeImmutable ? oflc_update_format_short_weekday($weekdayDate) : '';
-                $festivalCalendarDayLabel = $weekdayDate instanceof DateTimeImmutable ? $weekdayDate->format('j') : $entry['date'];
+                $festivalCalendarDayLabel = $weekdayDate instanceof DateTimeImmutable ? $weekdayDate->format('n/j') : $entry['date'];
                 $feastChoices[$logicKey] = [
                     'logic_key' => $logicKey,
                     'is_sunday' => false,
@@ -2034,7 +2034,7 @@ include 'includes/header.php';
     }
 
     function findObservanceDetailByName(name) {
-        var normalizedName = String(name || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}\)\s*$/, '').trim().toLowerCase();
+        var normalizedName = String(name || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
         var observanceId;
 
         if (normalizedName === '' || !observanceCatalog.name_lookup) {

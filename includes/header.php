@@ -46,7 +46,7 @@ $stylesheet_files = [
                     <ul class="nav-dropdown">
                         <li><a href="add-service.php">Add a Service</a></li>
                         <li><a href="update-service.php">Update a Service</a></li>
-                        <li><a href="delete-service.php">Delete a Service</a></li>
+                        <li><a href="remove-service.php">Remove a Service</a></li>
                     </ul>
                 </li>
                 <li><a href="schedule.php">Service Schedule</a></li>
