@@ -16,16 +16,14 @@ $legacy_js_version = file_exists($legacy_js_path) ? filemtime($legacy_js_path) :
 <div class="hymn-controls">
 <div class="hymn-controls-row">
 <button onclick="loadHymns('all', 'list')">All Hymns</button>
+<button class="hymn-section-view-button" onclick="loadHymns('all', 'section')">Hymns by Section</button>
 <button onclick="loadHymns('active', 'list')">Active Hymns</button>
-<button onclick="loadHymns('inactive', 'list')">Inactive Hymns</button>
+<button class="hymn-section-view-button" onclick="loadHymns('active', 'section')">Active by Section</button>
+<button onclick="loadHymns('inactive', 'list')">Inactive</button>
+<button class="hymn-section-view-button" onclick="loadHymns('inactive', 'section')">Inactive by Section</button>
 </div>
 <div class="hymn-controls-row">
-<button onclick="loadHymns('all', 'section')">Hymns By Section</button>
-<button onclick="loadHymns('active', 'section')">Active Hymns By Section</button>
-<button onclick="loadHymns('inactive', 'section')">Inactive Hymns By Section</button>
-</div>
-<div class="hymn-controls-row">
-<button class="clear-list-button" onclick="clearHymnList()">Clear List</button>
+<button class="clear-list-button" onclick="clearHymnList()">Clear</button>
 <button class="add-hymn-button" onclick="showAddForm()">Add Hymn</button>
 <button class="delete-hymn-button" onclick="showDeleteForm()">Delete Hymn</button>
 </div>

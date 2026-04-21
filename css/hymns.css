@@ -1,5 +1,8 @@
 .hymn-controls-row {
     margin: 0 -5px 0 -5px;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: center;
 }
 
 .hymn-controls-row + .hymn-controls-row {
@@ -9,6 +12,9 @@
 .hymn-controls button {
     margin: 0 5px;
     padding: 6px 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    font: 14px Arial, Helvetica, sans-serif;
 }
 
 .add-hymn-button {
@@ -21,19 +27,32 @@
     border: 1px solid #aaaaaa;
 }
 
+.hymn-section-view-button {
+    background-color: #d7e1ef;
+    border: 1px solid #aebed4;
+    padding-left: 9px;
+    padding-right: 9px;
+    font-size: 13px;
+}
+
 .hymn-controls .delete-hymn-button,
 .delete-hymn-button {
     background-color: #efc2c2;
     border: 1px solid #b25b5b;
 }
 
-.hymn-controls,
+.hymn-controls {
+    width: min(100%, 840px);
+    margin: 0 auto;
+}
+
 #hymn-content {
     width: 100%;
 }
 
 .hymn-list-search {
-    margin-top: 12px;
+    width: min(100%, 840px);
+    margin: 12px auto 0;
 }
 
 .hymn-list-search label {
@@ -55,48 +74,148 @@
 
 .hymn-section {
     margin-top: 12px;
+    width: min(100%, 840px);
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .hymn-section summary {
-    padding: 10px 12px;
-    border: 1px solid #000000;
-    background-color: #f5f5f5;
-    font-weight: bold;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #d3dceb;
+    background-color: #f5f8ff;
+    box-shadow: 0 2px 10px rgba(17, 17, 17, 0.08);
+    font: 700 12px Arial, Helvetica, sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #444444;
     cursor: pointer;
+    list-style: none;
 }
 
 .hymn-section[open] summary {
-    border-bottom: none;
+    margin-bottom: 8px;
 }
 
 .hymn-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 8px;
-    border: 1px solid #000000;
+    width: min(100%, 840px);
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0;
+    border: none;
+    background-color: transparent;
+    box-shadow: none;
+    font-family: Georgia, "Times New Roman", Times, serif;
+    table-layout: fixed;
+}
+
+.hymn-table-scroll {
+    width: min(100%, 840px);
+    max-height: 430px;
+    margin: 0 auto 8px;
+    overflow-y: auto;
 }
 
 .hymn-table th,
 .hymn-table td {
-    padding: 8px 12px;
+    padding: 10px 14px;
     text-align: left;
+    border-bottom: 1px solid #d3dceb;
+    vertical-align: middle;
 }
 
-.hymn-table tr {
-    border-bottom: 1px solid #000000;
+.hymn-table thead th {
+    background-color: #eef4ff;
+    font: 700 12px Arial, Helvetica, sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #444444;
+    position: sticky;
+    top: 0;
+    z-index: 3;
 }
 
-.hymn-table .active-column {
-    width: 1%;
-    white-space: nowrap;
-    text-align: center;
+.hymn-table thead th:first-child {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.hymn-table thead th:last-child {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+.hymn-entry {
+    box-shadow: 0 2px 10px rgba(17, 17, 17, 0.08);
+}
+
+.hymn-entry .hymn-summary-row td,
+.hymn-entry .hymn-detail-row td {
+    background-color: #ffffff;
+}
+
+.hymn-entry .hymn-summary-row td {
+    border-top: 1px solid #d3dceb;
+}
+
+.hymn-entry-spacer .hymn-spacer-row td {
+    padding: 0;
+    border: none;
+    height: 10px;
+    background-color: transparent;
+    box-shadow: none;
+}
+
+.hymn-entry .hymn-summary-row td:first-child,
+.hymn-entry .hymn-detail-row td:first-child {
+    border-left: 1px solid #d3dceb;
+}
+
+.hymn-entry .hymn-summary-row td:last-child,
+.hymn-entry .hymn-detail-row td:last-child {
+    border-right: 1px solid #d3dceb;
+}
+
+.hymn-entry .hymn-summary-row td:first-child {
+    border-top-left-radius: 4px;
+}
+
+.hymn-entry .hymn-summary-row td:last-child {
+    border-top-right-radius: 4px;
+}
+
+.hymn-entry .hymn-detail-row td {
+    border-top: none;
+    border-bottom: 1px solid #d3dceb;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+.hymn-entry .hymn-detail-row.is-collapsed td {
+    border: none;
+    padding: 0;
+    background-color: transparent;
 }
 
 .hymn-table .hymn-column,
 .hymn-table .insert-column,
 .hymn-table .kernlieder-column {
-    width: 1%;
     white-space: nowrap;
+}
+
+.hymn-table .hymn-column {
+    width: 140px;
+}
+
+.hymn-table .kernlieder-column {
+    width: 120px;
+}
+
+.hymn-table .active-column {
+    width: 90px;
+    white-space: nowrap;
+    text-align: center;
 }
 
 .hymn-table .insert-column,
@@ -114,11 +233,23 @@
 }
 
 .hymn-summary-row:hover {
-    background-color: #f2f2f2;
+    background-color: transparent;
 }
 
-.hymn-summary-row.inactive-row:hover {
-    background-color: #efcaca;
+.hymn-summary-row td {
+    transition: background-color 0.12s ease;
+}
+
+.hymn-summary-row:hover td {
+    background-color: #f5f8ff;
+}
+
+.hymn-summary-row.inactive-row td {
+    background-color: #fdf0f0;
+}
+
+.hymn-summary-row.inactive-row:hover td {
+    background-color: #f8dfdf;
 }
 
 .hymn-summary-row td input,
@@ -141,12 +272,20 @@
 }
 
 .hymn-summary-row.is-expanded {
-    background-color: #eef4ff;
+    background-color: transparent;
+}
+
+.hymn-summary-row.is-expanded td {
+    background-color: #f5f8ff;
+}
+
+.hymn-summary-row.inactive-row.is-expanded td {
+    background-color: #f8dfdf;
 }
 
 .hymn-detail-row {
     display: none;
-    background-color: #f8f8f8;
+    background-color: #fbfcff;
 }
 
 .hymn-detail-row.is-expanded {
@@ -160,15 +299,27 @@
 
 .hymn-detail-grid {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    margin: 0 -8px -12px 0;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.hymn-detail-grid-row {
+    display: grid;
+    gap: 12px 16px;
+    align-items: end;
 }
 
 .hymn-detail-grid label {
     display: block;
-    flex: 1 1 220px;
-    margin: 0 8px 12px 0;
+    margin: 0;
+}
+
+.hymn-detail-grid-row-primary {
+    grid-template-columns: 72px 88px 375px 110px;
+}
+
+.hymn-detail-grid-row-secondary {
+    grid-template-columns: 275px 275px minmax(160px, 1fr);
 }
 
 .hymn-detail-grid input[type="text"],
@@ -187,25 +338,24 @@
     flex: 0 0 auto;
 }
 
+.hymn-detail-actions {
+    display: flex;
+    align-items: end;
+    justify-content: flex-start;
+    gap: 10px;
+}
+
+.hymn-detail-actions .add-hymn-button,
+.hymn-detail-actions .clear-list-button {
+    padding: 8px 14px;
+    font: 14px Arial, Helvetica, sans-serif;
+}
+
 @supports (display: grid) {
     .hymn-detail-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px 16px;
-        margin: 0;
+        gap: 12px;
     }
-
-    .hymn-detail-grid label {
-        margin: 0;
-    }
-}
-
-.hymn-edit-input.is-saving {
-    background-color: #fff8d6;
-}
-
-.inactive-row {
-    background-color: #f6d6d6;
 }
 
 .hymn-search-panel,
@@ -213,6 +363,9 @@
     border: 1px solid #000000;
     padding: 16px;
     background-color: #f9f9f9;
+    width: min(100%, 840px);
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .delete-warning-banner {
@@ -257,16 +410,15 @@
     display: grid;
     margin-top: 12px;
     align-items: end;
+    gap: 12px 16px;
 }
 
 .hymn-form-row-primary {
-    grid-template-columns: 1fr 1fr 2fr;
-    gap: 12px 16px;
+    grid-template-columns: 72px 88px 375px 110px;
 }
 
 .hymn-form-row-secondary {
-    grid-template-columns: 2fr 2fr 90px 120px 90px;
-    gap: 12px 16px;
+    grid-template-columns: 275px 275px 90px 90px;
 }
 
 .hymn-form-row label {
@@ -287,6 +439,16 @@
     margin-bottom: 8px;
 }
 
+.hymn-form-checkbox-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.hymn-form-checkbox-field .hymn-form-checkbox-label {
+    margin-bottom: 0;
+}
+
 .hymn-form-actions {
     margin-top: 16px;
 }
@@ -298,9 +460,9 @@
 
 @media (max-width: 768px) {
     .hymn-controls-row {
-        display: flex;
         flex-wrap: wrap;
         margin: 0;
+        justify-content: flex-start;
     }
 
     .hymn-controls button {

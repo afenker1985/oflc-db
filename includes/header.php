@@ -1,10 +1,13 @@
 <?php
 $page_title = isset($page_title) ? $page_title : 'Hymn Database';
-$stylesheet_files = [
-    'css/main.css',
-    'css/hymns.css',
-    'css/services.css',
-];
+$stylesheet_files = isset($stylesheet_files) && is_array($stylesheet_files) && $stylesheet_files !== []
+    ? $stylesheet_files
+    : [
+        'css/main.css',
+        'css/hymns.css',
+        'css/services.css',
+    ];
+$body_class = isset($body_class) ? trim((string) $body_class) : '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -20,7 +23,7 @@ $stylesheet_files = [
         <link rel="stylesheet" type="text/css" href="<?php echo htmlspecialchars($stylesheet_file, ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo rawurlencode((string) $stylesheet_version); ?>">
     <?php endforeach; ?>
 </head>
-<body>
+<body<?php echo $body_class !== '' ? ' class="' . htmlspecialchars($body_class, ENT_QUOTES, 'UTF-8') . '"' : ''; ?>>
     <div class="container">
         <div class="site-header">
             <h1>Our Father's Evangelical Lutheran Church</h1>
@@ -33,6 +36,12 @@ $stylesheet_files = [
                     <a href="index.php" aria-label="Home">
                         <img src="home.png" width="25" alt="Home">
                     </a>
+                </li>
+                <li class="nav-item-has-dropdown">
+                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Database</a>
+                    <ul class="nav-dropdown">
+                        <li><a href="leaders.php">Leaders</a></li>
+                    </ul>
                 </li>
                 <li class="nav-item-has-dropdown">
                     <a href="#" class="nav-link-with-caret" aria-haspopup="true">Hymns</a>

@@ -29,44 +29,44 @@ $disabledAttribute = $readOnlyFields ? 'disabled' : '';
     <?php endif; ?>
 
     <div class="hymn-form-row hymn-form-row-primary">
-        <label>
+        <label class="hymn-form-field hymn-form-field-hymnal">
             Hymnal
             <input type="text" name="hymnal" list="hymnal-options" value="<?= $hymnalValue ?>" required <?= $readOnlyAttribute ?>>
         </label>
 
-        <label>
+        <label class="hymn-form-field hymn-form-field-number">
             Hymn Number
             <input type="text" name="hymn_number" value="<?= $hymnNumberValue ?>" required <?= $readOnlyAttribute ?>>
         </label>
 
-        <label>
+        <label class="hymn-form-field hymn-form-field-title">
             Title
             <input type="text" name="hymn_title" value="<?= $hymnTitleValue ?>" required <?= $readOnlyAttribute ?>>
+        </label>
+
+        <label class="hymn-form-field hymn-form-checkbox-field hymn-form-field-insert">
+            <span class="hymn-form-checkbox-label">Insert</span>
+            <input type="checkbox" name="insert_use" value="1" <?= $insertChecked ?> <?= $disabledAttribute ?>>
         </label>
     </div>
 
     <div class="hymn-form-row hymn-form-row-secondary">
-        <label>
+        <label class="hymn-form-field hymn-form-field-tune">
             Tune
             <input type="text" name="hymn_tune" value="<?= $hymnTuneValue ?>" <?= $readOnlyAttribute ?>>
         </label>
 
-        <label>
+        <label class="hymn-form-field hymn-form-field-section">
             Section
             <input type="text" name="hymn_section" list="section-options" value="<?= $hymnSectionValue ?>" <?= $readOnlyAttribute ?>>
         </label>
 
-        <label>
+        <label class="hymn-form-field hymn-form-field-kernlieder">
             Kernlieder
             <input type="number" name="kernlieder_target" value="<?= $kernliederValue ?>" min="0" required <?= $readOnlyAttribute ?>>
         </label>
 
-        <label>
-            <span class="hymn-form-checkbox-label">Need Insert?</span>
-            <input type="checkbox" name="insert_use" value="1" <?= $insertChecked ?> <?= $disabledAttribute ?>>
-        </label>
-
-        <label>
+        <label class="hymn-form-field hymn-form-checkbox-field hymn-form-field-active">
             <span class="hymn-form-checkbox-label">Active</span>
             <input type="checkbox" name="is_active" value="1" <?= $activeChecked ?> <?= $disabledAttribute ?>>
         </label>

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $page_title = 'Update a Service';
+$body_class = 'update-service-page';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
@@ -920,6 +921,10 @@ function oflc_update_format_combined_service_date(array $services): string
         }
     }
 
+    usort($fallback, static function (DateTimeImmutable $left, DateTimeImmutable $right): int {
+        return $left <=> $right;
+    });
+
     if ($thursday instanceof DateTimeImmutable && $sunday instanceof DateTimeImmutable) {
         return 'Thur, ' . $thursday->format('F j') . ' and Sunday, ' . $sunday->format('F j');
     }
@@ -1568,7 +1573,7 @@ $serviceStatement = $pdo->query(
      LEFT JOIN service_settings_db ss ON ss.id = s.service_setting_id
      LEFT JOIN leaders l ON l.id = s.leader_id
      WHERE s.is_active = 1
-     ORDER BY s.service_date ASC, s.service_order ASC, s.id ASC'
+     ORDER BY s.service_date DESC, s.service_order DESC, s.id DESC'
 );
 $services = $serviceStatement->fetchAll();
 

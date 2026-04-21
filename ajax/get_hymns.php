@@ -66,7 +66,29 @@ $hymns = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <details class="hymn-section">
             <summary><?= htmlspecialchars($group['hymnal'] . ' - ' . $group['section']) ?> (<?= count($group['hymns']) ?>)</summary>
 
-            <table class="hymn-table">
+            <div class="hymn-table-scroll">
+                <table class="hymn-table">
+                    <thead>
+                        <tr>
+                            <th class="hymn-column">Hymn</th>
+                            <th>Title</th>
+                            <th class="kernlieder-column">Kernlieder</th>
+                            <th class="active-column">Active</th>
+                            <?php /* <th class="insert-column">Insert</th> */ ?>
+                        </tr>
+                    </thead>
+
+                    <?php foreach ($group['hymns'] as $hymn): ?>
+                        <?php include __DIR__ . '/partials/hymn_row.php'; ?>
+                    <?php endforeach; ?>
+                </table>
+            </div>
+        </details>
+    <?php endforeach; ?>
+<?php else: ?>
+    <div class="hymn-table-scroll">
+        <table class="hymn-table">
+            <thead>
                 <tr>
                     <th class="hymn-column">Hymn</th>
                     <th>Title</th>
@@ -74,25 +96,11 @@ $hymns = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <th class="active-column">Active</th>
                     <?php /* <th class="insert-column">Insert</th> */ ?>
                 </tr>
+            </thead>
 
-                <?php foreach ($group['hymns'] as $hymn): ?>
-                    <?php include __DIR__ . '/partials/hymn_row.php'; ?>
-                <?php endforeach; ?>
-            </table>
-        </details>
-    <?php endforeach; ?>
-<?php else: ?>
-    <table class="hymn-table">
-        <tr>
-            <th class="hymn-column">Hymn</th>
-            <th>Title</th>
-            <th class="kernlieder-column">Kernlieder</th>
-            <th class="active-column">Active</th>
-            <?php /* <th class="insert-column">Insert</th> */ ?>
-        </tr>
-
-        <?php foreach ($hymns as $hymn): ?>
-            <?php include __DIR__ . '/partials/hymn_row.php'; ?>
-        <?php endforeach; ?>
-    </table>
+            <?php foreach ($hymns as $hymn): ?>
+                <?php include __DIR__ . '/partials/hymn_row.php'; ?>
+            <?php endforeach; ?>
+        </table>
+    </div>
 <?php endif; ?>
