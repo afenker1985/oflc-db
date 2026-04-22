@@ -339,6 +339,11 @@
     min-width: 0;
 }
 
+.service-card-hymn-row .service-card-hymn-lookup.service-card-hymn-lookup-duplicate-tune {
+    background-color: #fff8d9;
+    border-color: #d2a13e;
+}
+
 .service-card-hymn-slot-anchor {
     flex: 0 0 118px;
 }
@@ -382,6 +387,14 @@
     font-size: 12px;
     font-style: italic;
     color: #b13232;
+}
+
+.service-card-hymn-warning {
+    margin-bottom: 8px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-style: italic;
+    color: #b38a00;
 }
 
 .service-card-hymn-add-link {
@@ -692,6 +705,15 @@
     text-align: center;
 }
 
+.schedule-duplicate-tune-warning {
+    margin: -4px 0 12px;
+    text-align: center;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-style: italic;
+    color: #b38a00;
+}
+
 .schedule-filter-form {
     display: flex;
     flex-wrap: wrap;
@@ -715,12 +737,11 @@
     font: inherit;
 }
 
-.schedule-filter-checkbox {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font: 14px Arial, Helvetica, sans-serif;
-    color: #222222;
+.schedule-filter-field select {
+    padding: 6px 8px;
+    border: 1px solid #222222;
+    font: inherit;
+    background-color: #ffffff;
 }
 
 .schedule-filter-actions {
@@ -729,7 +750,64 @@
     gap: 10px;
 }
 
-.schedule-filter-button,
+.schedule-sort-buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schedule-sort-button {
+    display: inline-block;
+    min-width: 88px;
+    padding: 6px 12px;
+    border: 1px solid #3a64af;
+    background-color: #d8e4f8;
+    color: #18315f;
+    font: 14px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+    text-align: center;
+}
+
+.schedule-sort-button:hover,
+.schedule-sort-button:focus {
+    background-color: #c9daf6;
+}
+
+.schedule-sort-button.is-active {
+    border-color: #3a64af;
+}
+
+.schedule-sort-button.is-asc {
+    background-color: #d8e4f8;
+    color: #18315f;
+}
+
+.schedule-sort-button.is-asc:hover,
+.schedule-sort-button.is-asc:focus {
+    background-color: #c9daf6;
+}
+
+.schedule-sort-button.is-desc {
+    background-color: #c8d7f2;
+    color: #142a52;
+}
+
+.schedule-sort-button.is-desc:hover,
+.schedule-sort-button.is-desc:focus {
+    background-color: #bccff0;
+}
+
+.schedule-filter-note {
+    margin: -4px 0 14px;
+    text-align: center;
+    font: italic 13px Arial, Helvetica, sans-serif;
+    color: #444444;
+}
+
+.update-service-filter-form {
+    margin-bottom: 14px;
+}
+
 .schedule-filter-reset {
     display: inline-block;
     padding: 6px 14px;
@@ -741,8 +819,6 @@
     cursor: pointer;
 }
 
-.schedule-filter-button:hover,
-.schedule-filter-button:focus,
 .schedule-filter-reset:hover,
 .schedule-filter-reset:focus {
     background-color: #e8e8e8;
@@ -907,6 +983,10 @@ tr.is-selected td {
     text-align: center;
 }
 
+.schedule-hymn-item-duplicate-tune {
+    background-color: #fff8d9;
+}
+
 .schedule-reading-list {
     margin-top: 6px;
     font-size: 12pt;
@@ -927,11 +1007,24 @@ body.update-service-page .container {
     flex-direction: column;
 }
 
+body.update-service-page .site-header,
+body.update-service-page .main-nav {
+    flex: 0 0 auto;
+}
+
+body.update-service-page .site-header {
+    margin-bottom: 0;
+}
+
 body.update-service-page .content {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
+}
+
+body.update-service-page .content > h3:first-child {
+    margin-top: 0;
 }
 
 .update-service-list {

@@ -9,6 +9,7 @@ $oflcScheduleEmbedded = true;
 $oflcScheduleShowHeading = false;
 $oflcScheduleShowPrintLink = false;
 $oflcScheduleShowFilters = false;
+$oflcScheduleShowDuplicateTuneWarnings = false;
 ?>
 <!DOCTYPE html>
 <html lang="en">

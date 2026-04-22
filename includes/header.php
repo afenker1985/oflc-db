@@ -8,6 +8,32 @@ $stylesheet_files = isset($stylesheet_files) && is_array($stylesheet_files) && $
         'css/services.css',
     ];
 $body_class = isset($body_class) ? trim((string) $body_class) : '';
+
+$nav_dropdowns = [
+    'Database' => [
+        ['href' => 'leaders.php', 'label' => 'Leaders'],
+        ['href' => 'church-year.php', 'label' => 'Church Year'],
+    ],
+    'Hymns' => [
+        ['href' => 'hymns.php', 'label' => 'Hymn Database'],
+        ['href' => 'hymn-reports.php', 'label' => 'Hymn Reports'],
+    ],
+    'Services' => [
+        ['href' => 'add-service.php', 'label' => 'Add a Service'],
+        ['href' => 'update-service.php', 'label' => 'Update a Service'],
+        ['href' => 'remove-service.php', 'label' => 'Remove a Service'],
+    ],
+];
+
+foreach ($nav_dropdowns as &$nav_dropdown_items) {
+    usort(
+        $nav_dropdown_items,
+        static function (array $left, array $right): int {
+            return strcasecmp((string) ($left['label'] ?? ''), (string) ($right['label'] ?? ''));
+        }
+    );
+}
+unset($nav_dropdown_items);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,7 +53,7 @@ $body_class = isset($body_class) ? trim((string) $body_class) : '';
     <div class="container">
         <div class="site-header">
             <h1>Our Father's Evangelical Lutheran Church</h1>
-            <h2>Hymn Database and Scheduler</h2>
+            <h2>Service Scheduler</h2>
         </div>
 
         <div class="main-nav">
@@ -37,27 +63,20 @@ $body_class = isset($body_class) ? trim((string) $body_class) : '';
                         <img src="home.png" width="25" alt="Home">
                     </a>
                 </li>
-                <li class="nav-item-has-dropdown">
-                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Database</a>
-                    <ul class="nav-dropdown">
-                        <li><a href="leaders.php">Leaders</a></li>
-                    </ul>
-                </li>
-                <li class="nav-item-has-dropdown">
-                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Hymns</a>
-                    <ul class="nav-dropdown">
-                        <li><a href="hymns.php">Hymn Database</a></li>
-                        <li><a href="hymn-reports.php">Hymn Reports</a></li>
-                    </ul>
-                </li>
-                <li class="nav-item-has-dropdown">
-                    <a href="#" class="nav-link-with-caret" aria-haspopup="true">Services</a>
-                    <ul class="nav-dropdown">
-                        <li><a href="add-service.php">Add a Service</a></li>
-                        <li><a href="update-service.php">Update a Service</a></li>
-                        <li><a href="remove-service.php">Remove a Service</a></li>
-                    </ul>
-                </li>
+                <?php foreach ($nav_dropdowns as $menu_label => $menu_items): ?>
+                    <li class="nav-item-has-dropdown">
+                        <a href="#" class="nav-link-with-caret" aria-haspopup="true"><?php echo htmlspecialchars($menu_label, ENT_QUOTES, 'UTF-8'); ?></a>
+                        <ul class="nav-dropdown">
+                            <?php foreach ($menu_items as $menu_item): ?>
+                                <li>
+                                    <a href="<?php echo htmlspecialchars((string) ($menu_item['href'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo htmlspecialchars((string) ($menu_item['label'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </li>
+                <?php endforeach; ?>
                 <li><a href="schedule.php">Service Schedule</a></li>
             </ul>
         </div>

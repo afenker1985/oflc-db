@@ -366,6 +366,26 @@ INSERT INTO `service_settings_db` VALUES (1,'Divine Service: Setting One','DS1',
 UNLOCK TABLES;
 
 --
+-- Table structure for table `church_year_settings`
+--
+
+DROP TABLE IF EXISTS `church_year_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `church_year_settings` (
+  `id` tinyint unsigned NOT NULL,
+  `schedule_type` enum('church_year','calendar_year') NOT NULL DEFAULT 'church_year',
+  `start_period_key` varchar(64) NOT NULL,
+  `start_period_label` varchar(100) NOT NULL,
+  `end_period_key` varchar(64) NOT NULL,
+  `end_period_label` varchar(100) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `service_small_catechism_db`
 --
 

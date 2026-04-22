@@ -418,7 +418,7 @@ function oflc_register_hymn_lookup_key(array &$lookup, string $key, int $id): vo
 function oflc_fetch_hymn_catalog(PDO $pdo): array
 {
     $stmt = $pdo->query(
-        'SELECT id, hymnal, hymn_number, hymn_title, insert_use
+        'SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, insert_use
          FROM hymn_db
          WHERE is_active = 1
          ORDER BY hymnal, hymn_number, hymn_title'
@@ -426,12 +426,15 @@ function oflc_fetch_hymn_catalog(PDO $pdo): array
 
     $suggestions = [];
     $lookupByKey = [];
+    $tuneById = [];
 
     foreach ($stmt->fetchAll() as $row) {
         $hymnId = (int) ($row['id'] ?? 0);
         if ($hymnId <= 0) {
             continue;
         }
+
+        $tuneById[$hymnId] = trim((string) ($row['hymn_tune'] ?? ''));
 
         $fullLabel = oflc_format_hymn_suggestion_label_with_id($row);
         if ($fullLabel !== '') {
@@ -459,6 +462,7 @@ function oflc_fetch_hymn_catalog(PDO $pdo): array
     return [
         'suggestions' => array_values($suggestions),
         'lookup_by_key' => $lookupByKey,
+        'tune_by_id' => $tuneById,
     ];
 }
 
@@ -2372,6 +2376,9 @@ function oflcClearPlanner(form) {
         });
 }
 
+var hymnLookupByKey = <?php echo json_encode($hymn_catalog['lookup_by_key'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+var hymnTunesById = <?php echo json_encode($hymn_catalog['tune_by_id'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+
 window.oflcInitializePlannerUI = function (root) {
     var form = root.querySelector('#add-service-form');
     var serviceDateInput = root.querySelector('#service_date');
@@ -2824,6 +2831,100 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
 
+    function resolveHymnId(value) {
+        var key = String(value || '').trim();
+        var hymnId;
+
+        if (key === '') {
+            return 0;
+        }
+
+        hymnId = parseInt((hymnLookupByKey && hymnLookupByKey[key]) || '0', 10);
+        return Number.isFinite(hymnId) ? hymnId : 0;
+    }
+
+    function normalizeHymnTune(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function getDuplicateTuneKeys(scope) {
+        var hymnRows;
+        var duplicateTuneKeys = {};
+        var tuneGroups = {};
+
+        if (!scope) {
+            return duplicateTuneKeys;
+        }
+
+        hymnRows = scope.querySelectorAll('.service-card-hymn-row');
+        Array.prototype.forEach.call(hymnRows, function (row) {
+            var input = row.querySelector('.service-card-hymn-lookup');
+            var hymnId;
+            var tuneKey;
+
+            if (!input) {
+                return;
+            }
+
+            hymnId = resolveHymnId(input.value);
+            tuneKey = normalizeHymnTune(hymnTunesById && hymnId > 0 ? hymnTunesById[hymnId] : '');
+            if (tuneKey === '') {
+                return;
+            }
+
+            if (!tuneGroups[tuneKey]) {
+                tuneGroups[tuneKey] = { hymn_ids: {} };
+            }
+            tuneGroups[tuneKey].hymn_ids[String(hymnId)] = true;
+        });
+
+        Object.keys(tuneGroups).forEach(function (tuneKey) {
+            if (Object.keys(tuneGroups[tuneKey].hymn_ids).length > 1) {
+                duplicateTuneKeys[tuneKey] = true;
+            }
+        });
+
+        return duplicateTuneKeys;
+    }
+
+    function hasDuplicateTuneSelections(scope) {
+        return Object.keys(getDuplicateTuneKeys(scope)).length > 0;
+    }
+
+    function updateDuplicateTuneHighlights(scope) {
+        var hymnRows;
+        var duplicateTuneKeys = getDuplicateTuneKeys(scope);
+
+        if (!scope) {
+            return;
+        }
+
+        hymnRows = scope.querySelectorAll('.service-card-hymn-row');
+        Array.prototype.forEach.call(hymnRows, function (row) {
+            var input = row.querySelector('.service-card-hymn-lookup');
+            var hymnId;
+            var tuneKey;
+            var isDuplicate;
+
+            if (!input) {
+                return;
+            }
+
+            hymnId = resolveHymnId(input.value);
+            tuneKey = normalizeHymnTune(hymnTunesById && hymnId > 0 ? hymnTunesById[hymnId] : '');
+            isDuplicate = tuneKey !== '' && !!duplicateTuneKeys[tuneKey];
+
+            row.classList.toggle('has-duplicate-tune', isDuplicate);
+            input.classList.toggle('service-card-hymn-lookup-duplicate-tune', isDuplicate);
+
+            if (isDuplicate) {
+                input.title = 'Another hymn in this service uses the same tune.';
+            } else if (input.getAttribute('title') === 'Another hymn in this service uses the same tune.') {
+                input.removeAttribute('title');
+            }
+        });
+    }
+
     if (!form || !serviceSettingInput || !serviceSettingIdInput || !serviceSettingSuggestionList || !summary || !hymnPane || !observanceInput || !observanceIdInput || !observanceSuggestionList || !newObservanceColorWrap || !newObservanceColorSelect || !readingsPane) {
         return;
     }
@@ -3163,6 +3264,7 @@ window.oflcInitializePlannerUI = function (root) {
             hymnRowOrderInput.value = JSON.stringify(hymnState.order);
         }
 
+        updateDuplicateTuneHighlights(hymnPane);
         syncClearHymnsButtonState();
         syncPrimaryActionButtonsState();
     }
@@ -3526,6 +3628,9 @@ window.oflcInitializePlannerUI = function (root) {
 
         if (definitions.length > 0) {
             html += '<div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>';
+            if (hasDuplicateTuneSelections(hymnPane)) {
+                html += '<div class="service-card-hymn-warning">Selected hymns have the same tune.</div>';
+            }
         }
 
         hymnState.order.forEach(function (rowKey) {
@@ -3642,6 +3747,7 @@ window.oflcInitializePlannerUI = function (root) {
         bindHymnLookupBehavior(hymnPane);
         bindExtraHymnSlotBehavior(hymnPane);
         bindHymnDragBehavior(hymnPane, serviceId);
+        updateDuplicateTuneHighlights(hymnPane);
 
         var addExtraHymnLink = hymnPane.querySelector('#add-extra-hymn-link');
         var openingProcessional = document.getElementById('opening_processional');
