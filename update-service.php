@@ -22,6 +22,17 @@ function oflc_update_request_value(array $data, string $key, string $default = '
     return trim((string) $data[$key]);
 }
 
+function oflc_update_is_past_service_date(?DateTimeImmutable $serviceDate, ?DateTimeImmutable $today = null): bool
+{
+    if (!$serviceDate instanceof DateTimeImmutable) {
+        return false;
+    }
+
+    $today = $today instanceof DateTimeImmutable ? $today : new DateTimeImmutable('today');
+
+    return $serviceDate < $today;
+}
+
 function oflc_update_get_liturgical_color_display($color): string
 {
     $color = trim((string) $color);
@@ -201,16 +212,40 @@ function oflc_update_fetch_hymn_slots(PDO $pdo): array
     return $slots;
 }
 
-function oflc_update_fetch_active_leaders(PDO $pdo): array
+function oflc_update_fetch_leaders(PDO $pdo, bool $includeInactive = false): array
 {
-    $stmt = $pdo->query(
-        'SELECT id, first_name, last_name
-         FROM leaders
-         WHERE is_active = 1
-         ORDER BY last_name, first_name, id'
-    );
+    $sql = 'SELECT id, first_name, last_name, is_active
+         FROM leaders';
+
+    if (!$includeInactive) {
+        $sql .= '
+         WHERE is_active = 1';
+    }
+
+    $sql .= '
+         ORDER BY is_active DESC, last_name, first_name, id';
+
+    $stmt = $pdo->query($sql);
 
     return $stmt->fetchAll();
+}
+
+function oflc_update_build_leader_lookup(array $leaders): array
+{
+    $lookup = [];
+
+    foreach ($leaders as $leader) {
+        $lastName = trim((string) ($leader['last_name'] ?? ''));
+        $leaderId = (int) ($leader['id'] ?? 0);
+        if ($lastName === '' || $leaderId <= 0) {
+            continue;
+        }
+
+        $lookup[$lastName] = $leaderId;
+        $lookup[strtolower($lastName)] = $leaderId;
+    }
+
+    return $lookup;
 }
 
 function oflc_update_request_values(array $data, string $key): array
@@ -684,14 +719,20 @@ function oflc_update_register_hymn_lookup_key(array &$lookup, string $key, int $
     }
 }
 
-function oflc_update_fetch_hymn_catalog(PDO $pdo): array
+function oflc_update_fetch_hymn_catalog(PDO $pdo, bool $includeInactive = false): array
 {
-    $stmt = $pdo->query(
-        'SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, insert_use
-         FROM hymn_db
-         WHERE is_active = 1
-         ORDER BY hymnal, hymn_number, hymn_title'
-    );
+    $sql = 'SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, insert_use, is_active
+         FROM hymn_db';
+
+    if (!$includeInactive) {
+        $sql .= '
+         WHERE is_active = 1';
+    }
+
+    $sql .= '
+         ORDER BY is_active DESC, hymnal, hymn_number, hymn_title';
+
+    $stmt = $pdo->query($sql);
 
     $suggestions = [];
     $lookupByKey = [];
@@ -1529,11 +1570,20 @@ function oflc_update_group_schedule_services(array $services): array
             && (int) ($lastService['liturgical_calendar_id'] ?? 0) === (int) ($service['liturgical_calendar_id'] ?? 0);
         $lastDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($lastService['service_date'] ?? ''));
         $currentDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
-        $withinWindow = $lastDate instanceof DateTimeImmutable
+        $weekdayPair = [];
+        if ($lastDate instanceof DateTimeImmutable) {
+            $weekdayPair[] = $lastDate->format('w');
+        }
+        if ($currentDate instanceof DateTimeImmutable) {
+            $weekdayPair[] = $currentDate->format('w');
+        }
+        sort($weekdayPair);
+        $isThursdaySundayPair = $lastDate instanceof DateTimeImmutable
             && $currentDate instanceof DateTimeImmutable
-            && abs((int) $currentDate->diff($lastDate)->format('%r%a')) <= 4;
+            && abs((int) $currentDate->diff($lastDate)->format('%r%a')) === 3
+            && $weekdayPair === ['0', '4'];
 
-        if ($sameObservance && $withinWindow) {
+        if ($sameObservance && $isThursdaySundayPair) {
             $groups[$lastGroupIndex][] = $service;
             continue;
         }
@@ -1683,17 +1733,12 @@ foreach ($serviceSettings as $serviceSetting) {
 }
 
 $hymnSlots = oflc_update_fetch_hymn_slots($pdo);
-$leaders = oflc_update_fetch_active_leaders($pdo);
-$leadersByLastName = [];
-foreach ($leaders as $leader) {
-    $lastName = trim((string) ($leader['last_name'] ?? ''));
-    if ($lastName !== '') {
-        $leadersByLastName[$lastName] = (int) ($leader['id'] ?? 0);
-        $leadersByLastName[strtolower($lastName)] = (int) ($leader['id'] ?? 0);
-    }
-}
-
+$leaders = oflc_update_fetch_leaders($pdo);
+$allLeaders = oflc_update_fetch_leaders($pdo, true);
+$leadersByLastName = oflc_update_build_leader_lookup($leaders);
+$allLeadersByLastName = oflc_update_build_leader_lookup($allLeaders);
 $hymnCatalog = oflc_update_fetch_hymn_catalog($pdo);
+$allHymnCatalog = oflc_update_fetch_hymn_catalog($pdo, true);
 $smallCatechismOptions = oflc_update_fetch_small_catechism_options($pdo);
 $smallCatechismLookup = oflc_update_build_small_catechism_lookup($smallCatechismOptions);
 $passionReadingOptions = oflc_update_fetch_passion_reading_options($pdo);
@@ -1727,7 +1772,7 @@ $defaultUpdateServiceFilters = [
     'rubric_year' => (string) ($currentRubricYearOption['key'] ?? ''),
     'start_date' => $currentMonthStartDate->format('Y-m-d'),
     'end_date' => $currentMonthEndDate->format('Y-m-d'),
-    'sort_order' => 'asc',
+    'sort_order' => 'desc',
 ];
 $hasExplicitRangeFilters = isset($_GET['rubric_year']) || isset($_GET['start_date']) || isset($_GET['end_date']) || isset($_GET['sort_order']);
 $activeExpandedServiceId = isset($_GET['expanded_service']) ? (int) $_GET['expanded_service'] : 0;
@@ -1830,7 +1875,7 @@ $updateServiceResetQuery = [
     'rubric_year' => $currentRubricYearOption !== null ? (string) $currentRubricYearOption['key'] : null,
     'start_date' => $currentMonthStartDate->format('Y-m-d'),
     'end_date' => $currentMonthEndDate->format('Y-m-d'),
-    'sort_order' => 'asc',
+    'sort_order' => 'desc',
     'expanded_service' => $activeExpandedServiceId > 0 ? (string) $activeExpandedServiceId : null,
     'updated_service' => $updatedServiceId > 0 ? (string) $updatedServiceId : null,
 ];
@@ -1905,6 +1950,9 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     if (!$serviceDateObject instanceof DateTimeImmutable) {
         $errors[] = 'Service date must use YYYY-MM-DD.';
     }
+    $allowInactiveSelections = oflc_update_is_past_service_date($serviceDateObject, $today);
+    $leaderLookup = $allowInactiveSelections ? $allLeadersByLastName : $leadersByLastName;
+    $hymnLookupByKey = $allowInactiveSelections ? $allHymnCatalog['lookup_by_key'] : $hymnCatalog['lookup_by_key'];
 
     $observanceName = trim((string) $submittedState['observance_name']);
     $submittedObservanceId = ctype_digit((string) $submittedState['observance_id'])
@@ -1975,10 +2023,18 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     $leaderId = null;
     if ($leaderLastName !== '') {
         $normalizedLeaderLastName = strtolower($leaderLastName);
-        if (!isset($leadersByLastName[$normalizedLeaderLastName]) || (int) $leadersByLastName[$normalizedLeaderLastName] <= 0) {
-            $errors[] = 'Leader must match an active last name.';
+        if (!isset($leaderLookup[$normalizedLeaderLastName]) || (int) $leaderLookup[$normalizedLeaderLastName] <= 0) {
+            if (
+                !$allowInactiveSelections
+                && isset($allLeadersByLastName[$normalizedLeaderLastName])
+                && (int) $allLeadersByLastName[$normalizedLeaderLastName] > 0
+            ) {
+                $errors[] = 'Inactive leaders can only be used for past services.';
+            } else {
+                $errors[] = 'Leader must match an active last name.';
+            }
         } else {
-            $leaderId = (int) $leadersByLastName[$normalizedLeaderLastName];
+            $leaderId = (int) $leaderLookup[$normalizedLeaderLastName];
         }
     }
 
@@ -1988,10 +2044,18 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     if ($thursdayLeaderLastName !== '') {
         $hasExplicitThursdayLeader = true;
         $normalizedThursdayLeaderLastName = strtolower($thursdayLeaderLastName);
-        if (!isset($leadersByLastName[$normalizedThursdayLeaderLastName]) || (int) $leadersByLastName[$normalizedThursdayLeaderLastName] <= 0) {
-            $errors[] = 'Thursday leader must match an active last name.';
+        if (!isset($leaderLookup[$normalizedThursdayLeaderLastName]) || (int) $leaderLookup[$normalizedThursdayLeaderLastName] <= 0) {
+            if (
+                !$allowInactiveSelections
+                && isset($allLeadersByLastName[$normalizedThursdayLeaderLastName])
+                && (int) $allLeadersByLastName[$normalizedThursdayLeaderLastName] > 0
+            ) {
+                $errors[] = 'Inactive Thursday leaders can only be used for past services.';
+            } else {
+                $errors[] = 'Thursday leader must match an active last name.';
+            }
         } else {
-            $thursdayLeaderId = (int) $leadersByLastName[$normalizedThursdayLeaderLastName];
+            $thursdayLeaderId = (int) $leaderLookup[$normalizedThursdayLeaderLastName];
         }
     }
 
@@ -2184,9 +2248,14 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
             continue;
         }
 
-        $hymnId = oflc_update_resolve_hymn_id($hymnValue, $hymnCatalog['lookup_by_key']);
+        $hymnId = oflc_update_resolve_hymn_id($hymnValue, $hymnLookupByKey);
         if ($hymnId === null) {
-            $errors[] = trim((string) ($row['label'] ?? 'Hymn')) . ' must match a hymn from the suggestions.';
+            $knownInactiveHymnId = oflc_update_resolve_hymn_id($hymnValue, $allHymnCatalog['lookup_by_key']);
+            if (!$allowInactiveSelections && $knownInactiveHymnId !== null) {
+                $errors[] = trim((string) ($row['label'] ?? 'Hymn')) . ' is inactive and can only be used for past services.';
+            } else {
+                $errors[] = trim((string) ($row['label'] ?? 'Hymn')) . ' must match a hymn from the suggestions.';
+            }
             continue;
         }
 
@@ -2505,12 +2574,12 @@ include 'includes/header.php';
         >
     </div>
 
-    <div
+<div
         id="update-service-filter-root"
         data-reset-rubric-year="<?php echo htmlspecialchars($currentRubricYearOption['key'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
         data-reset-start-date="<?php echo htmlspecialchars($currentMonthStartDate->format('Y-m-d'), ENT_QUOTES, 'UTF-8'); ?>"
         data-reset-end-date="<?php echo htmlspecialchars($currentMonthEndDate->format('Y-m-d'), ENT_QUOTES, 'UTF-8'); ?>"
-        data-reset-sort-order="asc"
+        data-reset-sort-order="desc"
     >
     <?php if ($rubricYearOptions !== []): ?>
         <form method="post" action="update-service.php" class="schedule-filter-form update-service-filter-form" id="update-service-filter-form">
@@ -2548,11 +2617,17 @@ include 'includes/header.php';
                 </div>
             </label>
             <label class="schedule-filter-field">
-                <span>Start Date</span>
+                <span class="schedule-filter-nav-wrap">
+                    <button type="button" class="schedule-month-nav-button" data-update-service-month-nav="-1">&lt;&lt; prev mo</button>
+                    <span>Start Date</span>
+                </span>
                 <input type="date" name="start_date" value="<?php echo htmlspecialchars($filterStartInput, ENT_QUOTES, 'UTF-8'); ?>" data-update-service-date-field="start">
             </label>
             <label class="schedule-filter-field">
-                <span>End Date</span>
+                <span class="schedule-filter-nav-wrap">
+                    <span>End Date</span>
+                    <button type="button" class="schedule-month-nav-button" data-update-service-month-nav="1">next mo &gt;&gt;</button>
+                </span>
                 <input type="date" name="end_date" value="<?php echo htmlspecialchars($filterEndInput, ENT_QUOTES, 'UTF-8'); ?>" data-update-service-date-field="end">
             </label>
             <div class="schedule-filter-actions">
@@ -2577,8 +2652,16 @@ include 'includes/header.php';
 <?php endif; ?>
 
 <?php if ($hymnCatalog['suggestions'] !== []): ?>
-    <datalist id="hymn-options">
+    <datalist id="hymn-options-active">
         <?php foreach ($hymnCatalog['suggestions'] as $suggestion): ?>
+            <option value="<?php echo htmlspecialchars($suggestion, ENT_QUOTES, 'UTF-8'); ?>"></option>
+        <?php endforeach; ?>
+    </datalist>
+<?php endif; ?>
+
+<?php if ($allHymnCatalog['suggestions'] !== []): ?>
+    <datalist id="hymn-options-all">
+        <?php foreach ($allHymnCatalog['suggestions'] as $suggestion): ?>
             <option value="<?php echo htmlspecialchars($suggestion, ENT_QUOTES, 'UTF-8'); ?>"></option>
         <?php endforeach; ?>
     </datalist>
@@ -2596,12 +2679,29 @@ include 'includes/header.php';
 <?php endif; ?>
 
 <?php if ($leaders !== []): ?>
-    <datalist id="leader-options">
+    <datalist id="leader-options-active">
         <?php foreach ($leaders as $leader): ?>
             <?php $leaderLastName = trim((string) ($leader['last_name'] ?? '')); ?>
             <?php if ($leaderLastName !== ''): ?>
                 <option value="<?php echo htmlspecialchars($leaderLastName, ENT_QUOTES, 'UTF-8'); ?>"></option>
             <?php endif; ?>
+        <?php endforeach; ?>
+    </datalist>
+<?php endif; ?>
+
+<?php if ($allLeaders !== []): ?>
+    <datalist id="leader-options-all">
+        <?php
+        $renderedLeaderLastNames = [];
+        foreach ($allLeaders as $leader):
+            $leaderLastName = trim((string) ($leader['last_name'] ?? ''));
+            $leaderLastNameKey = strtolower($leaderLastName);
+            if ($leaderLastName === '' || isset($renderedLeaderLastNames[$leaderLastNameKey])) {
+                continue;
+            }
+            $renderedLeaderLastNames[$leaderLastNameKey] = true;
+        ?>
+            <option value="<?php echo htmlspecialchars($leaderLastName, ENT_QUOTES, 'UTF-8'); ?>"></option>
         <?php endforeach; ?>
     </datalist>
 <?php endif; ?>
@@ -2816,7 +2916,9 @@ include 'includes/header.php';
                                     'order' => array_values($formState['hymn_row_order'] ?? []),
                                     'next_extra_id' => count($formState['extra_hymn_rows'] ?? []) + 1,
                                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
-                                data-hymn-suggestions-id="hymn-options"
+                                data-active-hymn-suggestions-id="hymn-options-active"
+                                data-all-hymn-suggestions-id="hymn-options-all"
+                                data-lookup-today="<?php echo htmlspecialchars($today->format('Y-m-d'), ENT_QUOTES, 'UTF-8'); ?>"
                             >
                                 <input type="hidden" name="update_service" value="1">
                                 <input type="hidden" name="service_id" value="<?php echo $serviceId; ?>">
@@ -2937,7 +3039,7 @@ include 'includes/header.php';
                                                         name="hymn_<?php echo $hymnIndex; ?>"
                                                         value="<?php echo htmlspecialchars($formState['selected_hymns'][$hymnIndex] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                                         placeholder="<?php echo htmlspecialchars((string) $hymnField['label'], ENT_QUOTES, 'UTF-8'); ?>"
-                                                        data-list-id="hymn-options"
+                                                        data-list-id="hymn-options-active"
                                                         autocomplete="off"
                                                         class="service-card-hymn-lookup"
                                                     >
@@ -2965,7 +3067,9 @@ include 'includes/header.php';
                                             class="service-card-text"
                                             value="<?php echo htmlspecialchars($formState['preacher'], ENT_QUOTES, 'UTF-8'); ?>"
                                             placeholder="Fenker"
-                                            list="leader-options"
+                                            list="leader-options-active"
+                                            data-active-leader-list-id="leader-options-active"
+                                            data-all-leader-list-id="leader-options-all"
                                         >
                                         <?php if ($originalCopyToPreviousThursday): ?>
                                             <label class="service-card-label" for="thursday_preacher_<?php echo $serviceId; ?>">Thursday</label>
@@ -2976,7 +3080,9 @@ include 'includes/header.php';
                                                 class="service-card-text"
                                                 value="<?php echo htmlspecialchars($formState['thursday_preacher'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                                 placeholder="Blank = same as Sunday"
-                                                list="leader-options"
+                                                list="leader-options-active"
+                                                data-active-leader-list-id="leader-options-active"
+                                                data-all-leader-list-id="leader-options-all"
                                             >
                                         <?php endif; ?>
                                         <div class="update-service-panel-actions">
@@ -3001,12 +3107,11 @@ include 'includes/header.php';
 
 <script>
 (function () {
-    var hymnLookupByKey = <?php echo json_encode($hymnCatalog['lookup_by_key'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-    var hymnTunesById = <?php echo json_encode($hymnCatalog['tune_by_id'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+    var hymnLookupByKey = <?php echo json_encode($allHymnCatalog['lookup_by_key'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+    var hymnTunesById = <?php echo json_encode($allHymnCatalog['tune_by_id'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
     var hymnDefinitionsByService = <?php echo json_encode($hymnFieldDefinitionsByService, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
     var observanceCatalog = <?php echo json_encode($observanceCatalogPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
     var emptyReadingDrafts = <?php echo json_encode(array_values(oflc_service_normalize_new_reading_set_drafts([])), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-    var initialSearchServiceId = <?php echo json_encode($activeExpandedServiceId > 0 ? $activeExpandedServiceId : $updatedServiceId, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
     var searchDataElement = document.getElementById('update-service-search-data');
     var searchInput = document.getElementById('update-service-search');
     var updateServiceList = document.querySelector('.update-service-list');
@@ -3277,8 +3382,11 @@ include 'includes/header.php';
         var separateThursdayAlertTitle = form.querySelector('.js-separate-thursday-alert-title');
         var separateThursdayYes = form.querySelector('.js-separate-thursday-yes');
         var separateThursdayNo = form.querySelector('.js-separate-thursday-no');
-        var hymnSuggestionsId = form.getAttribute('data-hymn-suggestions-id') || '';
+        var activeHymnSuggestionsId = form.getAttribute('data-active-hymn-suggestions-id') || '';
+        var allHymnSuggestionsId = form.getAttribute('data-all-hymn-suggestions-id') || activeHymnSuggestionsId;
+        var lookupToday = form.getAttribute('data-lookup-today') || '';
         var hymnRowOrderInput = form.querySelector('.js-hymn-row-order-input');
+        var leaderInputs = form.querySelectorAll('input[name="preacher"], input[name="thursday_preacher"]');
         var dateObservanceSuggestions = [];
         var smallCatechismOptions = [];
         var passionReadingOptions = [];
@@ -3649,6 +3757,47 @@ include 'includes/header.php';
             return Number.isFinite(hymnId) ? hymnId : 0;
         }
 
+        function isPastServiceDateValue(value) {
+            return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim())
+                && /^\d{4}-\d{2}-\d{2}$/.test(String(lookupToday || '').trim())
+                && String(value).trim() < String(lookupToday).trim();
+        }
+
+        function shouldAllowInactiveSelections() {
+            return isPastServiceDateValue(serviceDateInput ? serviceDateInput.value : '');
+        }
+
+        function getCurrentHymnSuggestionsId() {
+            return shouldAllowInactiveSelections() ? allHymnSuggestionsId : activeHymnSuggestionsId;
+        }
+
+        function syncLookupSources() {
+            var useAllLookups = shouldAllowInactiveSelections();
+
+            Array.prototype.forEach.call(leaderInputs, function (input) {
+                var activeLeaderListId = input.getAttribute('data-active-leader-list-id') || 'leader-options-active';
+                var allLeaderListId = input.getAttribute('data-all-leader-list-id') || activeLeaderListId;
+
+                input.setAttribute('list', useAllLookups ? allLeaderListId : activeLeaderListId);
+            });
+
+            Array.prototype.forEach.call(hymnPane.querySelectorAll('.service-card-hymn-lookup'), function (input) {
+                var suggestionId;
+
+                if (String(input.value || '').trim() === '') {
+                    input.removeAttribute('list');
+                    return;
+                }
+
+                suggestionId = getCurrentHymnSuggestionsId();
+                if (suggestionId) {
+                    input.setAttribute('list', suggestionId);
+                } else {
+                    input.removeAttribute('list');
+                }
+            });
+        }
+
         function normalizeHymnTune(value) {
             return String(value || '').trim().toLowerCase();
         }
@@ -3863,10 +4012,15 @@ include 'includes/header.php';
                 });
 
                 input.addEventListener('input', function () {
+                    var suggestionId;
+
                     if (input.value.trim() === '') {
                         input.removeAttribute('list');
-                    } else if (hymnSuggestionsId) {
-                        input.setAttribute('list', hymnSuggestionsId);
+                    } else {
+                        suggestionId = getCurrentHymnSuggestionsId();
+                        if (suggestionId) {
+                            input.setAttribute('list', suggestionId);
+                        }
                     }
                     captureHymnState();
                 });
@@ -4300,7 +4454,7 @@ include 'includes/header.php';
                     html +=
                         '<div class="service-card-hymn-row" data-row-key="' + escapeHtml(rowKey) + '" data-row-kind="base" draggable="false">' +
                             '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
-                            '<input type="text" name="hymn_' + escapeHtml(meta.originalIndex) + '" value="' + escapeHtml(meta.value) + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + escapeHtml(hymnSuggestionsId) + '" autocomplete="off" class="service-card-hymn-lookup">' +
+                            '<input type="text" name="hymn_' + escapeHtml(meta.originalIndex) + '" value="' + escapeHtml(meta.value) + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + escapeHtml(getCurrentHymnSuggestionsId()) + '" autocomplete="off" class="service-card-hymn-lookup">' +
                             stanzaHtml +
                         '</div>';
                     return;
@@ -4310,7 +4464,7 @@ include 'includes/header.php';
                     '<div class="service-card-hymn-row service-card-hymn-row-extra" data-row-key="' + escapeHtml(meta.extraRow.key) + '" data-row-kind="extra" data-extra-slot-name="' + escapeHtml(meta.extraRow.slot_name) + '" data-slot-name="' + escapeHtml(meta.extraRow.slot_name) + '" draggable="false">' +
                         '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
                         '<input type="hidden" name="extra_hymn_keys[]" value="' + escapeHtml(meta.extraRow.key) + '">' +
-                        '<input type="text" name="extra_hymn_values[' + escapeHtml(meta.extraRow.key) + ']" value="' + escapeHtml(meta.extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + escapeHtml(hymnSuggestionsId) + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
+                        '<input type="text" name="extra_hymn_values[' + escapeHtml(meta.extraRow.key) + ']" value="' + escapeHtml(meta.extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + escapeHtml(getCurrentHymnSuggestionsId()) + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
                         '<input type="hidden" name="extra_hymn_stanzas[' + escapeHtml(meta.extraRow.key) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
                         '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>' +
                         '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
@@ -4331,6 +4485,7 @@ include 'includes/header.php';
             bindStanzaButtonBehavior(hymnPane);
             bindExtraHymnSlotBehavior(hymnPane, serviceId);
             bindHymnDragBehavior(hymnPane, serviceId);
+            syncLookupSources();
             updateDuplicateTuneHighlights(hymnPane);
 
             Array.prototype.forEach.call(hymnPane.querySelectorAll('.service-card-remove-hymn-button'), function (button) {
@@ -4653,6 +4808,7 @@ include 'includes/header.php';
         updateSettingSummary();
         updateObservanceDetails(false);
         updateDisplayDate();
+        syncLookupSources();
         syncPreviousThursdayState();
 
         serviceSettingInput.addEventListener('input', function () {
@@ -4723,6 +4879,7 @@ include 'includes/header.php';
             serviceDateInput.addEventListener('change', function () {
                 updateDisplayDate();
                 rerenderCurrentReadingsPane();
+                syncLookupSources();
             });
         }
 
@@ -4779,6 +4936,7 @@ include 'includes/header.php';
             var sortOrderInput = filterForm.querySelector('[data-update-service-sort-input="1"]');
             var sortToggleButton = filterForm.querySelector('[data-update-service-sort-toggle="1"]');
             var resetLink = filterForm.querySelector('[data-update-service-reset="1"]');
+            var monthNavButtons = filterForm.querySelectorAll('[data-update-service-month-nav]');
             var isProgrammaticUpdate = false;
 
             function submitFilters() {
@@ -4815,6 +4973,63 @@ include 'includes/header.php';
                 }
 
                 rubricLabel.textContent = labelText;
+            }
+
+            function parseDateInputValue(value) {
+                var parts;
+                var localDate;
+
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim())) {
+                    return null;
+                }
+
+                parts = String(value).split('-');
+                localDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+
+                return isNaN(localDate.getTime()) ? null : localDate;
+            }
+
+            function formatDateInputValue(date) {
+                if (!(date instanceof Date) || isNaN(date.getTime())) {
+                    return '';
+                }
+
+                return [
+                    String(date.getFullYear()),
+                    String(date.getMonth() + 1).padStart(2, '0'),
+                    String(date.getDate()).padStart(2, '0')
+                ].join('-');
+            }
+
+            function shiftDisplayedMonth(direction) {
+                var delta = parseInt(direction || '0', 10);
+                var referenceDate = parseDateInputValue(startDateInput && startDateInput.value)
+                    || parseDateInputValue(endDateInput && endDateInput.value)
+                    || parseDateInputValue(filterRoot.getAttribute('data-reset-start-date') || '');
+                var monthStart;
+                var monthEnd;
+
+                if (!referenceDate || !Number.isFinite(delta) || delta === 0) {
+                    return;
+                }
+
+                monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + delta, 1);
+                monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + delta + 1, 0);
+
+                isProgrammaticUpdate = true;
+                if (rubricInput) {
+                    rubricInput.value = '';
+                    syncRubricYearLabel();
+                }
+                if (startDateInput) {
+                    startDateInput.value = formatDateInputValue(monthStart);
+                }
+                if (endDateInput) {
+                    endDateInput.value = formatDateInputValue(monthEnd);
+                }
+                isProgrammaticUpdate = false;
+                hideRubricYearList();
+                submitFilters();
             }
 
             function hideRubricYearList() {
@@ -4935,16 +5150,16 @@ include 'includes/header.php';
                     submitFilters();
                 });
             }
+
+            Array.prototype.forEach.call(monthNavButtons || [], function (button) {
+                button.addEventListener('click', function () {
+                    shiftDisplayedMonth(button.getAttribute('data-update-service-month-nav') || '0');
+                });
+            });
         }());
     }
 
     if (searchInput) {
-        if (String(searchInput.value || '').trim() === '' && initialSearchServiceId && searchData.forms_by_id) {
-            if (searchData.forms_by_id[String(initialSearchServiceId)] && searchData.forms_by_id[String(initialSearchServiceId)].search_label) {
-                searchInput.value = String(searchData.forms_by_id[String(initialSearchServiceId)].search_label);
-            }
-        }
-
         searchInput.addEventListener('change', function () {
             applySearchFilter();
             syncSearchSelection();

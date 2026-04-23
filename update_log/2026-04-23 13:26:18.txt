@@ -1,0 +1,32 @@
+# Update Summary
+
+Timestamp: `2026-04-23 13:26:18`
+
+## Changes made
+
+1. Fixed duplicate-tune highlighting on `schedule.php` so hymns like `618` and `619` are now flagged there too, matching `add-service.php` and `update-service.php`.
+2. Changed service grouping on `update-service.php` and `schedule.php` so only the intended Thursday/Sunday paired services are grouped together.
+3. Stopped same-day services such as Good Friday-style duplicates from being merged into one row.
+4. Allowed inactive leaders on `update-service.php` when the edited service date is in the past.
+5. Allowed inactive hymns on `update-service.php` when the edited service date is in the past.
+6. Added separate active-only and all-item lookup sources in `update-service.php` so past services can use inactive records without opening that up for future services.
+7. Fixed the `update-service.php` post-update behavior that was filling the top search box after clicking `Update Service`.
+8. Changed `update-service.php` results to default to descending order so the most recent services appear first.
+9. Reduced the schedule-year control width on `update-service.php`.
+10. Added `<< prev mo` and `next mo >>` month navigation buttons to both `update-service.php` and `schedule.php`.
+11. Renamed the Services menu entry from `Remove a Service` to `Remove/Restore Service`.
+12. Renamed the remove-service page title and heading to `Remove/Restore Service`.
+13. Narrowed the `remove-service.php` search field and updated its layout.
+14. Made `remove-service.php` search active services only by default.
+15. Added a `Search inactive services` toggle to `remove-service.php`.
+16. Added restore support to `remove-service.php` so inactive services can be reactivated.
+17. Updated the remove/restore action button text so it switches between `Deactivate Service` and `Restore Service` based on the selected service.
+18. Scoped restore logic so it brings back the latest hymn version and latest catechism links instead of reactivating all historical rows.
+19. Created the `update_log/` folder for timestamped change summaries.
+
+## Verification
+
+- `php -l update-service.php`
+- `php -l schedule.php`
+- `php -l remove-service.php`
+- `php -l includes/header.php`

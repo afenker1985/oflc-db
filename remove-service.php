@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-$page_title = 'Remove a Service';
+$page_title = 'Remove/Restore Service';
 
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/service_observances.php';
@@ -321,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($selectedServiceId <= 0) {
         $errorMessage = 'Select a service first.';
-    } elseif (!in_array($serviceAction, ['deactivate', 'delete'], true)) {
+    } elseif (!in_array($serviceAction, ['deactivate', 'restore', 'delete'], true)) {
         $errorMessage = 'Choose a valid service action.';
     } elseif ($serviceAction === 'delete' && $confirmationText !== 'DELETE') {
         $errorMessage = 'Type DELETE to permanently delete a service.';
@@ -342,7 +342,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('That service could not be found.');
             }
 
-            if ($serviceAction === 'deactivate') {
+            if ($serviceAction === 'restore') {
+                if ((int) ($serviceRow['is_active'] ?? 0) === 1) {
+                    $successMessage = 'Service is already active.';
+                } else {
+                    $restoreServiceStmt = $pdo->prepare(
+                        'UPDATE service_db
+                         SET is_active = 1,
+                             last_updated = :today
+                         WHERE id = :id
+                           AND is_active = 0'
+                    );
+                    $restoreHymnUsageStmt = $pdo->prepare(
+                        'UPDATE hymn_usage_db
+                         SET is_active = 1,
+                             last_updated = :today
+                         WHERE sunday_id = :service_id
+                           AND is_active = 0
+                           AND version_number = (
+                               SELECT version_number
+                               FROM (
+                                   SELECT MAX(version_number) AS version_number
+                                   FROM hymn_usage_db
+                                   WHERE sunday_id = :service_id_for_version
+                               ) AS latest_version
+                           )'
+                    );
+                    $restoreCatechismStmt = $pdo->prepare(
+                        'UPDATE service_small_catechism_db
+                         SET is_active = 1,
+                             last_updated = :today
+                         WHERE service_id = :service_id
+                           AND is_active = 0
+                           AND last_updated = (
+                               SELECT latest_last_updated
+                               FROM (
+                                   SELECT MAX(last_updated) AS latest_last_updated
+                                   FROM service_small_catechism_db
+                                   WHERE service_id = :service_id_for_last_updated
+                               ) AS latest_catechism_rows
+                           )'
+                    );
+
+                    $restoreServiceStmt->execute([
+                        ':today' => $today,
+                        ':id' => $selectedServiceId,
+                    ]);
+                    $restoreHymnUsageStmt->execute([
+                        ':today' => $today,
+                        ':service_id' => $selectedServiceId,
+                        ':service_id_for_version' => $selectedServiceId,
+                    ]);
+                    $restoreCatechismStmt->execute([
+                        ':today' => $today,
+                        ':service_id' => $selectedServiceId,
+                        ':service_id_for_last_updated' => $selectedServiceId,
+                    ]);
+
+                    $successMessage = 'Service restored.';
+                }
+            } elseif ($serviceAction === 'deactivate') {
                 if ((int) ($serviceRow['is_active'] ?? 0) === 0) {
                     $successMessage = 'Service is already inactive.';
                 } else {
@@ -590,15 +649,17 @@ foreach ($services as $service) {
 include __DIR__ . '/includes/header.php';
 
 $initialSearchValue = '';
+$initialIncludeInactive = false;
 if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedServiceId])) {
     $initialSearchValue = (string) ($searchPayload['services_by_id'][$selectedServiceId]['search_label'] ?? '');
+    $initialIncludeInactive = !(bool) ($searchPayload['services_by_id'][$selectedServiceId]['is_active'] ?? true);
 }
 ?>
 
 <div id="remove-service-root">
-    <h3>Remove a Service</h3>
+    <h3>Remove/Restore Service</h3>
 
-    <p>Search for a service by date or observance, review the populated card, then deactivate or permanently delete it.</p>
+    <p>Search for a service by date or observance, review the populated card, then deactivate, restore, or permanently delete it.</p>
 
     <?php if ($successMessage !== null): ?>
         <p class="planning-success"><?php echo htmlspecialchars($successMessage, ENT_QUOTES, 'UTF-8'); ?></p>
@@ -609,17 +670,25 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
     <?php endif; ?>
 
     <div class="remove-service-search-panel">
-        <label for="remove-service-search">Search by Date or Observance</label>
-        <div class="service-card-suggestion-anchor">
-            <input
-                type="text"
-                id="remove-service-search"
-                class="service-card-text"
-                placeholder="Start typing a date or observance"
-                autocomplete="off"
-                value="<?php echo htmlspecialchars($initialSearchValue, ENT_QUOTES, 'UTF-8'); ?>"
-            >
-            <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-remove-service-suggestion-list" hidden></div>
+        <div class="remove-service-search-row">
+            <div class="remove-service-search-field">
+                <label for="remove-service-search">Search by Date or Observance</label>
+                <div class="service-card-suggestion-anchor">
+                    <input
+                        type="text"
+                        id="remove-service-search"
+                        class="service-card-text"
+                        placeholder="Search active services"
+                        autocomplete="off"
+                        value="<?php echo htmlspecialchars($initialSearchValue, ENT_QUOTES, 'UTF-8'); ?>"
+                    >
+                    <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-remove-service-suggestion-list" hidden></div>
+                </div>
+            </div>
+            <label class="service-card-checkbox remove-service-search-toggle" for="remove-service-search-inactive">
+                <input type="checkbox" id="remove-service-search-inactive"<?php echo $initialIncludeInactive ? ' checked' : ''; ?>>
+                <span>Search inactive services</span>
+            </label>
         </div>
     </div>
 
@@ -683,6 +752,7 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
 (function () {
     var dataElement = document.getElementById('remove-service-data');
     var searchInput = document.getElementById('remove-service-search');
+    var searchInactiveToggle = document.getElementById('remove-service-search-inactive');
     var searchSuggestionList = document.querySelector('.js-remove-service-suggestion-list');
     var form = document.getElementById('remove-service-form');
     var serviceIdInput = document.getElementById('remove_service_id');
@@ -748,6 +818,7 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
         leaderInput.value = '';
         statusNode.innerHTML = '&nbsp;';
         deactivateButton.disabled = true;
+        deactivateButton.textContent = 'Deactivate Service';
         deleteButton.disabled = true;
         setCardColor('service-card-color-dark');
     }
@@ -767,26 +838,38 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
         hymnsNode.innerHTML = service && service.hymns_html ? String(service.hymns_html) : '&nbsp;';
         leaderInput.value = service && service.leader_name ? String(service.leader_name) : '';
         statusNode.textContent = service && service.status_text ? String(service.status_text) : ' ';
-        deactivateButton.disabled = !(service && service.is_active);
+        deactivateButton.disabled = !service;
+        deactivateButton.textContent = service && service.is_active ? 'Deactivate Service' : 'Restore Service';
         deleteButton.disabled = !service;
         setCardColor(service && service.color_class ? String(service.color_class) : 'service-card-color-dark');
+    }
+
+    function includeInactiveServices() {
+        return !!(searchInactiveToggle && searchInactiveToggle.checked);
+    }
+
+    function isSearchableService(service) {
+        return !!service && (includeInactiveServices() || !!service.is_active);
     }
 
     function resolveService(value) {
         var normalizedValue = String(value || '').trim();
         var lookupId;
+        var service = null;
 
         if (normalizedValue === '') {
             return null;
         }
 
         if (searchData.id_by_label && searchData.id_by_label[normalizedValue]) {
-            return searchData.services_by_id[String(searchData.id_by_label[normalizedValue])] || searchData.services_by_id[searchData.id_by_label[normalizedValue]] || null;
+            service = searchData.services_by_id[String(searchData.id_by_label[normalizedValue])] || searchData.services_by_id[searchData.id_by_label[normalizedValue]] || null;
+            return isSearchableService(service) ? service : null;
         }
 
         lookupId = searchData.id_by_lookup ? searchData.id_by_lookup[normalizedValue.toLowerCase()] : null;
         if (lookupId && searchData.services_by_id) {
-            return searchData.services_by_id[String(lookupId)] || searchData.services_by_id[lookupId] || null;
+            service = searchData.services_by_id[String(lookupId)] || searchData.services_by_id[lookupId] || null;
+            return isSearchableService(service) ? service : null;
         }
 
         return null;
@@ -799,12 +882,20 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
 
         if (!preferAllSuggestions && query !== '') {
             source = Array.prototype.filter.call(labels, function (label) {
-                return String(label || '').toLowerCase().indexOf(query) !== -1;
+                var service = resolveService(label);
+
+                return !!service && String(label || '').toLowerCase().indexOf(query) !== -1;
             });
 
             if (source.length === 0) {
-                source = labels;
+                source = Array.prototype.filter.call(labels, function (label) {
+                    return !!resolveService(label);
+                });
             }
+        } else {
+            source = Array.prototype.filter.call(labels, function (label) {
+                return !!resolveService(label);
+            });
         }
 
         return Array.prototype.filter.call(source, function (label, index) {
@@ -868,6 +959,8 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
         if (!service) {
             if (String(searchInput.value || '').trim() === '') {
                 clearSelectedService();
+            } else if (!includeInactiveServices()) {
+                clearSelectedService();
             }
             return;
         }
@@ -879,19 +972,47 @@ if ($selectedServiceId > 0 && isset($searchPayload['services_by_id'][$selectedSe
     }
 
     deactivateButton.addEventListener('click', function () {
+        var selectedService = resolveService(searchInput.value);
+
         if (!serviceIdInput.value) {
             window.alert('Select a service first.');
             return;
         }
 
-        if (!window.confirm('Deactivate this service?')) {
+        if (!selectedService) {
+            window.alert('Select a service first.');
             return;
         }
 
-        serviceActionInput.value = 'deactivate';
+        if (selectedService.is_active) {
+            if (!window.confirm('Deactivate this service?')) {
+                return;
+            }
+
+            serviceActionInput.value = 'deactivate';
+        } else {
+            if (!window.confirm('Restore this service?')) {
+                return;
+            }
+
+            serviceActionInput.value = 'restore';
+        }
+
         confirmationInput.value = '';
         form.submit();
     });
+
+    if (searchInactiveToggle) {
+        searchInactiveToggle.addEventListener('change', function () {
+            if (String(searchInput.value || '').trim() === '') {
+                clearSelectedService();
+            } else {
+                syncSelection();
+            }
+
+            showSuggestionOptions(false);
+        });
+    }
 
     deleteButton.addEventListener('click', function () {
         var confirmation;

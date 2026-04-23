@@ -163,22 +163,11 @@ function oflc_normalize_hymn_tune($value): string
     return strtolower(trim((string) $value));
 }
 
-function oflc_is_sunday_service(array $service): bool
-{
-    $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
-
-    return $dateObject instanceof DateTimeImmutable && $dateObject->format('w') === '0';
-}
-
-function oflc_collect_duplicate_sunday_tunes(array $services, array $hymnsByService): array
+function oflc_collect_duplicate_tunes(array $services, array $hymnsByService): array
 {
     $tuneToHymnIds = [];
 
     foreach ($services as $service) {
-        if (!oflc_is_sunday_service($service)) {
-            continue;
-        }
-
         $serviceId = (int) ($service['id'] ?? 0);
         foreach ($hymnsByService[$serviceId] ?? [] as $hymn) {
             $hymnId = (int) ($hymn['hymn_id'] ?? 0);
@@ -223,11 +212,20 @@ function oflc_group_schedule_services(array $services): array
             && (int) ($lastService['liturgical_calendar_id'] ?? 0) === (int) ($service['liturgical_calendar_id'] ?? 0);
         $lastDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($lastService['service_date'] ?? ''));
         $currentDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
-        $withinWindow = $lastDate instanceof DateTimeImmutable
+        $weekdayPair = [];
+        if ($lastDate instanceof DateTimeImmutable) {
+            $weekdayPair[] = $lastDate->format('w');
+        }
+        if ($currentDate instanceof DateTimeImmutable) {
+            $weekdayPair[] = $currentDate->format('w');
+        }
+        sort($weekdayPair);
+        $isThursdaySundayPair = $lastDate instanceof DateTimeImmutable
             && $currentDate instanceof DateTimeImmutable
-            && abs((int) $currentDate->diff($lastDate)->format('%r%a')) <= 4;
+            && abs((int) $currentDate->diff($lastDate)->format('%r%a')) === 3
+            && $weekdayPair === ['0', '4'];
 
-        if ($sameObservance && $withinWindow) {
+        if ($sameObservance && $isThursdaySundayPair) {
             $groups[$lastGroupIndex][] = $service;
             continue;
         }
@@ -330,11 +328,10 @@ function oflc_merge_group_hymns(array $services, array $hymnsByService): array
 {
     $merged = [];
     $indexByLabel = [];
-    $duplicateSundayTunes = oflc_collect_duplicate_sunday_tunes($services, $hymnsByService);
+    $duplicateTunes = oflc_collect_duplicate_tunes($services, $hymnsByService);
 
     foreach ($services as $service) {
         $serviceId = (int) ($service['id'] ?? 0);
-        $isSunday = oflc_is_sunday_service($service);
         foreach ($hymnsByService[$serviceId] ?? [] as $hymn) {
             $label = (string) ($hymn['label'] ?? '');
             if ($label === '') {
@@ -350,7 +347,7 @@ function oflc_merge_group_hymns(array $services, array $hymnsByService): array
             }
 
             $tuneKey = oflc_normalize_hymn_tune($hymn['tune'] ?? '');
-            if ($isSunday && $tuneKey !== '' && isset($duplicateSundayTunes[$tuneKey])) {
+            if ($tuneKey !== '' && isset($duplicateTunes[$tuneKey])) {
                 $merged[$indexByLabel[$label]]['duplicate_tune'] = true;
             }
         }
@@ -553,7 +550,7 @@ if ($scheduleFilterError === null) {
 
 $scheduleHasDuplicateTuneWarnings = false;
 foreach ($scheduleGroups as $group) {
-    if (oflc_collect_duplicate_sunday_tunes($group, $hymnsByService) !== []) {
+    if (oflc_collect_duplicate_tunes($group, $hymnsByService) !== []) {
         $scheduleHasDuplicateTuneWarnings = true;
         break;
     }
@@ -629,11 +626,17 @@ if (!$oflcScheduleEmbedded) {
             </label>
         <?php endif; ?>
         <label class="schedule-filter-field">
-            <span>Start Date</span>
+            <span class="schedule-filter-nav-wrap">
+                <button type="button" class="schedule-month-nav-button" data-schedule-month-nav="-1">&lt;&lt; prev mo</button>
+                <span>Start Date</span>
+            </span>
             <input type="date" name="start_date" value="<?php echo htmlspecialchars($filterStartInput, ENT_QUOTES, 'UTF-8'); ?>" data-schedule-date-field="start">
         </label>
         <label class="schedule-filter-field">
-            <span>End Date</span>
+            <span class="schedule-filter-nav-wrap">
+                <span>End Date</span>
+                <button type="button" class="schedule-month-nav-button" data-schedule-month-nav="1">next mo &gt;&gt;</button>
+            </span>
             <input type="date" name="end_date" value="<?php echo htmlspecialchars($filterEndInput, ENT_QUOTES, 'UTF-8'); ?>" data-schedule-date-field="end">
         </label>
         <div class="schedule-filter-actions">
@@ -856,6 +859,7 @@ if (!$oflcScheduleEmbedded) {
         var sortOrderInput;
         var sortToggleButton;
         var resetLink;
+        var monthNavButtons;
 
         if (!root || !form) {
             return;
@@ -871,6 +875,7 @@ if (!$oflcScheduleEmbedded) {
         sortOrderInput = form.querySelector('[data-schedule-sort-input="1"]');
         sortToggleButton = form.querySelector('[data-schedule-sort-toggle="1"]');
         resetLink = root.querySelector('[data-schedule-reset="1"]');
+        monthNavButtons = form.querySelectorAll('[data-schedule-month-nav]');
 
         form.addEventListener('submit', function (event) {
             event.preventDefault();
@@ -907,6 +912,63 @@ if (!$oflcScheduleEmbedded) {
             }
 
             rubricLabel.textContent = labelText;
+        }
+
+        function parseDateInputValue(value) {
+            var parts;
+            var localDate;
+
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim())) {
+                return null;
+            }
+
+            parts = String(value).split('-');
+            localDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+
+            return isNaN(localDate.getTime()) ? null : localDate;
+        }
+
+        function formatDateInputValue(date) {
+            if (!(date instanceof Date) || isNaN(date.getTime())) {
+                return '';
+            }
+
+            return [
+                String(date.getFullYear()),
+                String(date.getMonth() + 1).padStart(2, '0'),
+                String(date.getDate()).padStart(2, '0')
+            ].join('-');
+        }
+
+        function shiftDisplayedMonth(direction) {
+            var delta = parseInt(direction || '0', 10);
+            var referenceDate = parseDateInputValue(startDateInput && startDateInput.value)
+                || parseDateInputValue(endDateInput && endDateInput.value)
+                || parseDateInputValue(root.getAttribute('data-reset-start-date') || '');
+            var monthStart;
+            var monthEnd;
+
+            if (!referenceDate || !Number.isFinite(delta) || delta === 0) {
+                return;
+            }
+
+            monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + delta, 1);
+            monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + delta + 1, 0);
+
+            isProgrammaticUpdate = true;
+            if (rubricInput) {
+                rubricInput.value = '';
+                syncRubricYearLabel();
+            }
+            if (startDateInput) {
+                startDateInput.value = formatDateInputValue(monthStart);
+            }
+            if (endDateInput) {
+                endDateInput.value = formatDateInputValue(monthEnd);
+            }
+            isProgrammaticUpdate = false;
+            hideRubricYearList();
+            requestSchedule(buildUrlFromForm(form));
         }
 
         function hideRubricYearList() {
@@ -1033,6 +1095,12 @@ if (!$oflcScheduleEmbedded) {
                 requestSchedule(buildUrlFromForm(form));
             });
         }
+
+        Array.prototype.forEach.call(monthNavButtons || [], function (button) {
+            button.addEventListener('click', function () {
+                shiftDisplayedMonth(button.getAttribute('data-schedule-month-nav') || '0');
+            });
+        });
 
         if (document.oflcScheduleOutsideClickHandler) {
             document.removeEventListener('click', document.oflcScheduleOutsideClickHandler);

@@ -21,7 +21,7 @@ $nav_dropdowns = [
     'Services' => [
         ['href' => 'add-service.php', 'label' => 'Add a Service'],
         ['href' => 'update-service.php', 'label' => 'Update a Service'],
-        ['href' => 'remove-service.php', 'label' => 'Remove a Service'],
+        ['href' => 'remove-service.php', 'label' => 'Remove/Restore Service'],
     ],
 ];
 

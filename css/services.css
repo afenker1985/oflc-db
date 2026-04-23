@@ -715,6 +715,19 @@
     background-color: #f9f9f9;
 }
 
+.remove-service-search-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.remove-service-search-field {
+    flex: 0 1 360px;
+    min-width: 0;
+}
+
 .remove-service-search-panel label {
     display: block;
     margin-bottom: 6px;
@@ -723,6 +736,12 @@
 
 .remove-service-search-panel .service-card-text {
     width: 100%;
+    max-width: 360px;
+}
+
+.remove-service-search-toggle {
+    margin-bottom: 0;
+    white-space: nowrap;
 }
 
 .remove-service-status {
@@ -908,6 +927,13 @@
     color: #222222;
 }
 
+.schedule-filter-nav-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .schedule-filter-field input {
     padding: 6px 8px;
     border: 1px solid #222222;
@@ -923,6 +949,10 @@
 
 .schedule-filter-select-anchor {
     min-width: 180px;
+}
+
+.update-service-filter-form .schedule-filter-select-anchor {
+    min-width: 144px;
 }
 
 .schedule-filter-select-anchor .service-card-selectlike {
@@ -943,6 +973,21 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
+}
+
+.schedule-month-nav-button {
+    padding: 4px 8px;
+    border: 1px solid #222222;
+    background-color: #f5f5f5;
+    color: #222222;
+    font: 12px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.schedule-month-nav-button:hover,
+.schedule-month-nav-button:focus {
+    background-color: #e8e8e8;
 }
 
 .schedule-sort-buttons {
@@ -1487,6 +1532,14 @@ body.update-service-page .content > h3:first-child {
     .remove-service-actions {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .remove-service-search-row {
+        align-items: stretch;
+    }
+
+    .remove-service-search-field {
+        flex-basis: 100%;
     }
 
     .remove-service-delete-wrap {
