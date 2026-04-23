@@ -36,6 +36,38 @@ function oflc_request_values(array $request_data, string $key): array
     }));
 }
 
+function oflc_normalize_stanza_text($value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+
+    return trim($value);
+}
+
+function oflc_request_stanza_map(array $request_data, string $key): array
+{
+    $value = $request_data[$key] ?? [];
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $map = [];
+    foreach ($value as $row_key => $row_value) {
+        $normalized_key = trim((string) $row_key);
+        if ($normalized_key === '') {
+            continue;
+        }
+
+        $map[$normalized_key] = oflc_normalize_stanza_text($row_value);
+    }
+
+    return $map;
+}
+
 function oflc_get_suggested_service_date(PDO $pdo): string
 {
     $latest_service_date = $pdo
@@ -494,8 +526,8 @@ function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
             'direction' => 'previous_thursday',
             'primary_key' => 'sunday',
             'secondary_key' => 'thursday',
-            'primary_label' => 'Sunday Leader',
-            'secondary_label' => 'Thursday Leader',
+            'primary_label' => 'Sunday',
+            'secondary_label' => 'Thursday',
             'secondary_placeholder' => 'Blank = same as Sunday',
             'secondary_date' => $serviceDate->modify('-3 days')->format('Y-m-d'),
             'secondary_date_label' => $serviceDate->modify('-3 days')->format('m/d'),
@@ -509,8 +541,8 @@ function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
             'direction' => 'upcoming_sunday',
             'primary_key' => 'thursday',
             'secondary_key' => 'sunday',
-            'primary_label' => 'Thursday Leader',
-            'secondary_label' => 'Sunday Leader',
+            'primary_label' => 'Thursday',
+            'secondary_label' => 'Sunday',
             'secondary_placeholder' => 'Blank = same as Thursday',
             'secondary_date' => $serviceDate->modify('+3 days')->format('Y-m-d'),
             'secondary_date_label' => $serviceDate->modify('+3 days')->format('m/d'),
@@ -549,6 +581,7 @@ function oflc_normalize_extra_hymn_rows(array $request_data): array
     $keys = $request_data['extra_hymn_keys'] ?? [];
     $values = $request_data['extra_hymn_values'] ?? [];
     $slots = $request_data['extra_hymn_slots'] ?? [];
+    $stanzas = $request_data['extra_hymn_stanzas'] ?? [];
 
     if (!is_array($keys)) {
         $keys = [$keys];
@@ -558,6 +591,9 @@ function oflc_normalize_extra_hymn_rows(array $request_data): array
     }
     if (!is_array($slots)) {
         $slots = [];
+    }
+    if (!is_array($stanzas)) {
+        $stanzas = [];
     }
 
     $rows = [];
@@ -577,6 +613,7 @@ function oflc_normalize_extra_hymn_rows(array $request_data): array
             'key' => $normalized_key,
             'value' => $value,
             'slot_name' => $slot_name,
+            'stanzas' => oflc_normalize_stanza_text($stanzas[$normalized_key] ?? ''),
         ];
     }
 
@@ -596,6 +633,7 @@ function oflc_fetch_hymn_fill_templates(PDO $pdo): array
             hu.hymn_id,
             hu.sort_order,
             hs.slot_name,
+            hu.stanzas,
             h.hymnal,
             h.hymn_number,
             h.hymn_title
@@ -651,6 +689,7 @@ function oflc_fetch_hymn_fill_templates(PDO $pdo): array
             'label' => $label,
             'slot_name' => trim((string) ($row['slot_name'] ?? 'Other Hymn')),
             'sort_order' => (int) ($row['sort_order'] ?? 1),
+            'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
         ];
     }
 
@@ -998,8 +1037,8 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
             'label' => $slot_label('Opening Hymn', 'Opening Hymn'),
             'slot_name' => 'Opening Hymn',
             'sort_order' => 1,
-            'toggle_name' => 'opening_processional',
-            'toggle_label' => 'Processional',
+            'toggle_name' => null,
+            'toggle_label' => null,
         ];
         $definitions[] = [
             'index' => 2,
@@ -1026,8 +1065,8 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
             'label' => $slot_label('Closing Hymn', 'Closing Hymn'),
             'slot_name' => 'Closing Hymn',
             'sort_order' => 1,
-            'toggle_name' => 'closing_recessional',
-            'toggle_label' => 'Recessional',
+            'toggle_name' => null,
+            'toggle_label' => null,
         ];
 
         return $definitions;
@@ -1159,6 +1198,7 @@ $new_reading_sets = oflc_service_normalize_new_reading_set_drafts($request_data)
 $extra_hymn_rows = oflc_normalize_extra_hymn_rows($request_data);
 $submitted_hymn_row_order = oflc_parse_hymn_row_order($request_data);
 $selected_hymns = [];
+$selected_hymn_stanzas = oflc_request_stanza_map($request_data, 'hymn_stanzas');
 $selected_option_detail = null;
 $selected_service_date_obj = DateTimeImmutable::createFromFormat('Y-m-d', $selected_date) ?: null;
 $selected_option_is_sunday = $selected_service_date_obj instanceof DateTimeImmutable
@@ -1623,17 +1663,12 @@ if ($is_add_submit && $date_error === null) {
         }
 
         $slot_name = (string) ($definition['slot_name'] ?? '');
-        if (($definition['toggle_name'] ?? null) === 'opening_processional' && isset($request_data['opening_processional'])) {
-            $slot_name = 'Processional Hymn';
-        }
-        if (($definition['toggle_name'] ?? null) === 'closing_recessional' && isset($request_data['closing_recessional'])) {
-            $slot_name = 'Recessional Hymn';
-        }
 
         $base_hymn_rows['base:' . $index] = [
             'label' => (string) ($definition['label'] ?? ('Hymn ' . $index)),
             'value' => $selected_hymns[$index] ?? '',
             'slot_name' => $slot_name,
+            'stanzas' => $selected_hymn_stanzas[(string) $index] ?? '',
         ];
     }
 
@@ -1648,6 +1683,7 @@ if ($is_add_submit && $date_error === null) {
             'label' => 'Additional hymn',
             'value' => trim((string) ($extra_hymn_row['value'] ?? '')),
             'slot_name' => trim((string) ($extra_hymn_row['slot_name'] ?? 'Other Hymn')),
+            'stanzas' => oflc_normalize_stanza_text($extra_hymn_row['stanzas'] ?? ''),
         ];
     }
 
@@ -1698,12 +1734,6 @@ if ($is_add_submit && $date_error === null) {
 
             if (is_array($definition_for_position)) {
                 $slot_name = trim((string) ($definition_for_position['slot_name'] ?? $slot_name));
-                if (($definition_for_position['toggle_name'] ?? null) === 'opening_processional' && isset($request_data['opening_processional'])) {
-                    $slot_name = 'Processional Hymn';
-                }
-                if (($definition_for_position['toggle_name'] ?? null) === 'closing_recessional' && isset($request_data['closing_recessional'])) {
-                    $slot_name = 'Recessional Hymn';
-                }
             }
         }
 
@@ -1718,6 +1748,7 @@ if ($is_add_submit && $date_error === null) {
             'hymn_id' => $hymn_id,
             'slot_id' => (int) $hymn_slots[$slot_name]['id'],
             'sort_order' => $slot_sort_order_counts[$slot_name],
+            'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
         ];
     }
 
@@ -1814,6 +1845,7 @@ if ($is_add_submit && $date_error === null) {
                     hymn_id,
                     slot_id,
                     sort_order,
+                    stanzas,
                     version_number,
                     created_at,
                     last_updated,
@@ -1823,6 +1855,7 @@ if ($is_add_submit && $date_error === null) {
                     :hymn_id,
                     :slot_id,
                     :sort_order,
+                    :stanzas,
                     1,
                     :created_at,
                     :last_updated,
@@ -1870,6 +1903,7 @@ if ($is_add_submit && $date_error === null) {
                         ':hymn_id' => $entry['hymn_id'],
                         ':slot_id' => $entry['slot_id'],
                         ':sort_order' => $entry['sort_order'],
+                        ':stanzas' => $entry['stanzas'],
                         ':created_at' => $today,
                         ':last_updated' => $today,
                     ]);
@@ -1962,8 +1996,7 @@ include 'includes/header.php';
         data-selected-passion-reading-id="<?php echo htmlspecialchars((string) $selected_passion_reading_id, ENT_QUOTES, 'UTF-8'); ?>"
         data-initial-hymn-state="<?php echo htmlspecialchars(json_encode([
             'hymns' => array_map('strval', $selected_hymns),
-            'opening_processional' => isset($request_data['opening_processional']),
-            'closing_recessional' => isset($request_data['closing_recessional']),
+            'stanzas' => array_map('strval', $selected_hymn_stanzas),
             'extra_rows' => array_values($extra_hymn_rows),
             'order' => array_values($submitted_hymn_row_order),
             'next_extra_id' => count($extra_hymn_rows) + 1,
@@ -2146,7 +2179,7 @@ include 'includes/header.php';
                     data-selected-service-id="<?php echo htmlspecialchars((string) $selected_service_setting, ENT_QUOTES, 'UTF-8'); ?>"
                 >
                     <?php if ($hymn_field_definitions !== []): ?>
-                        <div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>
+                        <div class="service-card-hymn-instruction">Click "s" to input stanzas for a hymn.</div>
                     <?php endif; ?>
                 </div>
             </section>
@@ -2427,8 +2460,7 @@ window.oflcInitializePlannerUI = function (root) {
     var readingDraftState = [];
     var hymnState = {
         hymns: {},
-        opening_processional: false,
-        closing_recessional: false,
+        stanzas: {},
         extra_rows: [],
         order: [],
         next_extra_id: 1
@@ -2997,16 +3029,24 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     try {
-        hymnState = JSON.parse(form.getAttribute('data-initial-hymn-state') || '{"hymns":{},"opening_processional":false,"closing_recessional":false,"extra_rows":[],"order":[],"next_extra_id":1}');
+        hymnState = JSON.parse(form.getAttribute('data-initial-hymn-state') || '{"hymns":{},"stanzas":{},"extra_rows":[],"order":[],"next_extra_id":1}');
     } catch (error) {
         hymnState = {
             hymns: {},
-            opening_processional: false,
-            closing_recessional: false,
+            stanzas: {},
             extra_rows: [],
             order: [],
             next_extra_id: 1
         };
+    }
+
+    var activeStanzaRowKey = '';
+    var stanzaModal = null;
+    var stanzaModalTitle = null;
+    var stanzaModalInput = null;
+
+    function normalizeStanzaText(value) {
+        return String(value || '').trim().replace(/\s+/g, ' ');
     }
 
     function getLeaderSuggestionSource(query) {
@@ -3101,6 +3141,9 @@ window.oflcInitializePlannerUI = function (root) {
         if (!hymnState.hymns || typeof hymnState.hymns !== 'object') {
             hymnState.hymns = {};
         }
+        if (!hymnState.stanzas || typeof hymnState.stanzas !== 'object') {
+            hymnState.stanzas = {};
+        }
         if (!Array.isArray(hymnState.extra_rows)) {
             hymnState.extra_rows = [];
         }
@@ -3110,7 +3153,8 @@ window.oflcInitializePlannerUI = function (root) {
             return {
                 key: String(row.key),
                 value: String(row.value || ''),
-                slot_name: row.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+                slot_name: row.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+                stanzas: normalizeStanzaText(row.stanzas || '')
             };
         });
         hymnState.extra_rows.forEach(function (row) {
@@ -3229,14 +3273,15 @@ window.oflcInitializePlannerUI = function (root) {
 
     function captureHymnState() {
         var hymnRows = hymnPane.querySelectorAll('.service-card-hymn-row');
-        var openingProcessional = document.getElementById('opening_processional');
-        var closingRecessional = document.getElementById('closing_recessional');
         var nextExtraRows = [];
         var nextOrder = [];
+        var nextStanzas = {};
 
         Array.prototype.forEach.call(hymnRows, function (row) {
             var rowKey = row.getAttribute('data-row-key') || '';
             var input = row.querySelector('.service-card-hymn-lookup');
+            var stanzasInput = row.querySelector('.js-hymn-stanza-input');
+            var stanzasValue = normalizeStanzaText(stanzasInput ? stanzasInput.value : '');
 
             if (!rowKey || !input) {
                 return;
@@ -3245,20 +3290,23 @@ window.oflcInitializePlannerUI = function (root) {
             nextOrder.push(rowKey);
             if (rowKey.indexOf('base:') === 0) {
                 hymnState.hymns[rowKey.replace('base:', '')] = input.value;
+                if (stanzasValue !== '') {
+                    nextStanzas[rowKey.replace('base:', '')] = stanzasValue;
+                }
                 return;
             }
 
             nextExtraRows.push({
                 key: rowKey,
                 value: input.value,
-                slot_name: row.getAttribute('data-extra-slot-name') === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+                slot_name: row.getAttribute('data-extra-slot-name') === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+                stanzas: stanzasValue
             });
         });
 
         hymnState.extra_rows = nextExtraRows;
         hymnState.order = nextOrder;
-        hymnState.opening_processional = !!(openingProcessional && openingProcessional.checked);
-        hymnState.closing_recessional = !!(closingRecessional && closingRecessional.checked);
+        hymnState.stanzas = nextStanzas;
 
         if (hymnRowOrderInput) {
             hymnRowOrderInput.value = JSON.stringify(hymnState.order);
@@ -3360,6 +3408,182 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
 
+    function ensureStanzaModal() {
+        if (stanzaModal) {
+            return;
+        }
+
+        stanzaModal = document.createElement('div');
+        stanzaModal.className = 'service-card-stanza-modal';
+        stanzaModal.hidden = true;
+        stanzaModal.innerHTML =
+            '<div class="service-card-stanza-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="service-card-stanza-title">' +
+                '<div class="service-card-stanza-modal-header">' +
+                    '<div class="service-card-stanza-modal-title" id="service-card-stanza-title">Set hymn stanzas</div>' +
+                    '<button type="button" class="service-card-stanza-modal-close js-stanza-modal-cancel" aria-label="Close stanza editor">&times;</button>' +
+                '</div>' +
+                '<label class="service-card-stanza-modal-label" for="service-card-stanza-input">Stanzas</label>' +
+                '<textarea id="service-card-stanza-input" class="service-card-stanza-modal-input js-stanza-modal-input" placeholder="1, 3-4"></textarea>' +
+                '<div class="service-card-stanza-modal-actions">' +
+                    '<button type="button" class="service-card-stanza-modal-button service-card-stanza-modal-button-muted js-stanza-modal-clear">Clear</button>' +
+                    '<button type="button" class="service-card-stanza-modal-button service-card-stanza-modal-button-primary js-stanza-modal-save">Save</button>' +
+                '</div>' +
+            '</div>';
+
+        form.appendChild(stanzaModal);
+
+        stanzaModalTitle = stanzaModal.querySelector('.service-card-stanza-modal-title');
+        stanzaModalInput = stanzaModal.querySelector('.js-stanza-modal-input');
+
+        stanzaModal.addEventListener('click', function (event) {
+            if (event.target === stanzaModal) {
+                closeStanzaModal();
+            }
+        });
+
+        Array.prototype.forEach.call(stanzaModal.querySelectorAll('.js-stanza-modal-cancel'), function (button) {
+            button.addEventListener('click', function () {
+                closeStanzaModal();
+            });
+        });
+
+        Array.prototype.forEach.call(stanzaModal.querySelectorAll('.js-stanza-modal-clear'), function (button) {
+            button.addEventListener('click', function () {
+                if (!stanzaModalInput) {
+                    return;
+                }
+
+                stanzaModalInput.value = '';
+                stanzaModalInput.focus();
+            });
+        });
+
+        Array.prototype.forEach.call(stanzaModal.querySelectorAll('.js-stanza-modal-save'), function (button) {
+            button.addEventListener('click', function () {
+                saveStanzaModalValue();
+            });
+        });
+
+        if (stanzaModalInput) {
+            stanzaModalInput.addEventListener('keydown', function (event) {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault();
+                    saveStanzaModalValue();
+                }
+
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeStanzaModal();
+                }
+            });
+        }
+    }
+
+    function getStanzaValueForRow(rowKey) {
+        if (rowKey.indexOf('base:') === 0) {
+            return normalizeStanzaText((hymnState.stanzas || {})[rowKey.replace('base:', '')] || '');
+        }
+
+        var extraRow = findExtraHymnRow(rowKey);
+        return extraRow ? normalizeStanzaText(extraRow.stanzas || '') : '';
+    }
+
+    function setStanzaValueForRow(rowKey, value) {
+        var normalizedValue = normalizeStanzaText(value);
+        var extraRow;
+
+        if (rowKey.indexOf('base:') === 0) {
+            if (normalizedValue === '') {
+                delete hymnState.stanzas[rowKey.replace('base:', '')];
+            } else {
+                hymnState.stanzas[rowKey.replace('base:', '')] = normalizedValue;
+            }
+            return;
+        }
+
+        extraRow = findExtraHymnRow(rowKey);
+        if (extraRow) {
+            extraRow.stanzas = normalizedValue;
+        }
+    }
+
+    function syncStanzaButtonState(rowKey) {
+        var row = hymnPane.querySelector('[data-row-key="' + rowKey.replace(/"/g, '\\"') + '"]');
+        var button;
+        var input;
+        var value;
+
+        if (!row) {
+            return;
+        }
+
+        button = row.querySelector('.js-hymn-stanza-button');
+        input = row.querySelector('.js-hymn-stanza-input');
+        value = getStanzaValueForRow(rowKey);
+
+        if (input) {
+            input.value = value;
+        }
+        if (button) {
+            button.classList.toggle('is-set', value !== '');
+            button.setAttribute('title', value !== '' ? 'Stanzas: ' + value : 'Click to add stanzas');
+        }
+    }
+
+    function openStanzaModal(rowKey, label) {
+        ensureStanzaModal();
+        captureHymnState();
+        activeStanzaRowKey = rowKey;
+
+        if (stanzaModalTitle) {
+            stanzaModalTitle.textContent = 'Set stanzas for ' + String(label || 'hymn');
+        }
+        if (stanzaModalInput) {
+            stanzaModalInput.value = getStanzaValueForRow(rowKey);
+        }
+
+        stanzaModal.hidden = false;
+        stanzaModal.classList.add('is-visible');
+
+        if (stanzaModalInput) {
+            stanzaModalInput.focus();
+            stanzaModalInput.select();
+        }
+    }
+
+    function closeStanzaModal() {
+        if (!stanzaModal) {
+            return;
+        }
+
+        stanzaModal.hidden = true;
+        stanzaModal.classList.remove('is-visible');
+        activeStanzaRowKey = '';
+    }
+
+    function saveStanzaModalValue() {
+        if (!activeStanzaRowKey || !stanzaModalInput) {
+            closeStanzaModal();
+            return;
+        }
+
+        setStanzaValueForRow(activeStanzaRowKey, stanzaModalInput.value);
+        syncStanzaButtonState(activeStanzaRowKey);
+        closeStanzaModal();
+        captureHymnState();
+    }
+
+    function bindStanzaButtonBehavior(scope) {
+        Array.prototype.forEach.call(scope.querySelectorAll('.js-hymn-stanza-button'), function (button) {
+            button.addEventListener('click', function () {
+                openStanzaModal(
+                    button.getAttribute('data-row-key') || '',
+                    button.getAttribute('data-row-label') || 'hymn'
+                );
+            });
+        });
+    }
+
     function bindHymnDragBehavior(scope, serviceId) {
         var draggedRowKey = null;
 
@@ -3427,7 +3651,8 @@ window.oflcInitializePlannerUI = function (root) {
         hymnState.extra_rows.push({
             key: 'extra:' + String(hymnState.next_extra_id || 1),
             value: '',
-            slot_name: defaultSlotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+            slot_name: defaultSlotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+            stanzas: ''
         });
         hymnState.next_extra_id = (parseInt(hymnState.next_extra_id || '1', 10) || 1) + 1;
         hymnState.order.push(hymnState.extra_rows[hymnState.extra_rows.length - 1].key);
@@ -3524,13 +3749,15 @@ window.oflcInitializePlannerUI = function (root) {
         orderedHymns = Array.isArray(template.hymns) ? template.hymns.slice() : [];
 
         hymnState.hymns = {};
+        hymnState.stanzas = {};
         hymnState.order = [];
-        hymnState.opening_processional = false;
-        hymnState.closing_recessional = false;
 
         definitions.forEach(function (definition, index) {
             var hymn = orderedHymns[index] || null;
             hymnState.hymns[String(definition.index)] = hymn && hymn.label ? String(hymn.label) : '';
+            if (hymn && hymn.stanzas) {
+                hymnState.stanzas[String(definition.index)] = normalizeStanzaText(hymn.stanzas);
+            }
             hymnState.order.push('base:' + String(definition.index));
         });
 
@@ -3539,7 +3766,8 @@ window.oflcInitializePlannerUI = function (root) {
             nextExtraRows.push({
                 key: key,
                 value: hymn && hymn.label ? String(hymn.label) : '',
-                slot_name: hymn && hymn.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn'
+                slot_name: hymn && hymn.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+                stanzas: hymn && hymn.stanzas ? normalizeStanzaText(hymn.stanzas) : ''
             });
             hymnState.order.push(key);
             hymnState.next_extra_id = (parseInt(hymnState.next_extra_id || '1', 10) || 1) + 1;
@@ -3554,10 +3782,9 @@ window.oflcInitializePlannerUI = function (root) {
 
         normalizeHymnState(serviceId);
         hymnState.hymns = {};
+        hymnState.stanzas = {};
         hymnState.extra_rows = [];
         hymnState.order = [];
-        hymnState.opening_processional = false;
-        hymnState.closing_recessional = false;
         if (fillHymnsIdInput) {
             fillHymnsIdInput.value = '';
         }
@@ -3627,7 +3854,7 @@ window.oflcInitializePlannerUI = function (root) {
         });
 
         if (definitions.length > 0) {
-            html += '<div class="service-card-hymn-instruction">Check boxes mark hymns as procession / recession.</div>';
+            html += '<div class="service-card-hymn-instruction">Click "s" to input stanzas for a hymn.</div>';
             if (hasDuplicateTuneSelections(hymnPane)) {
                 html += '<div class="service-card-hymn-warning">Selected hymns have the same tune.</div>';
             }
@@ -3645,12 +3872,6 @@ window.oflcInitializePlannerUI = function (root) {
                     return;
                 }
                 slotName = String(definition.slot_name || '');
-                if (definition.toggle_name === 'opening_processional' && hymnState.opening_processional) {
-                    slotName = 'Processional Hymn';
-                }
-                if (definition.toggle_name === 'closing_recessional' && hymnState.closing_recessional) {
-                    slotName = 'Recessional Hymn';
-                }
 
                 if (slotName === 'Distribution Hymn') {
                     distributionIndex += 1;
@@ -3663,7 +3884,7 @@ window.oflcInitializePlannerUI = function (root) {
                     kind: 'base',
                     originalIndex: rowKey.replace('base:', ''),
                     value: hymnState.hymns[rowKey.replace('base:', '')] || '',
-                    toggleName: definition.toggle_name || '',
+                    stanzas: normalizeStanzaText((hymnState.stanzas || {})[rowKey.replace('base:', '')] || ''),
                     label: label,
                     slotName: slotName
                 };
@@ -3682,6 +3903,7 @@ window.oflcInitializePlannerUI = function (root) {
             rowMetaByKey[rowKey] = {
                 kind: 'extra',
                 extraRow: extraRow,
+                stanzas: normalizeStanzaText(extraRow.stanzas || ''),
                 label: extraRow.slot_name === 'Distribution Hymn'
                     ? 'Distribution Hymn ' + String(distributionIndex)
                     : 'Additional hymn',
@@ -3692,7 +3914,7 @@ window.oflcInitializePlannerUI = function (root) {
         hymnState.order.forEach(function (rowKey) {
             var originalIndex;
             var value;
-            var toggleHtml = '';
+            var stanzaHtml = '';
 
             meta = rowMetaByKey[rowKey];
             if (!meta) {
@@ -3703,22 +3925,15 @@ window.oflcInitializePlannerUI = function (root) {
                 originalIndex = meta.originalIndex;
                 value = meta.value;
 
-                if (meta.toggleName) {
-                    var isChecked = meta.toggleName === 'opening_processional'
-                        ? hymnState.opening_processional
-                        : hymnState.closing_recessional;
-
-                    toggleHtml =
-                        '<label class="service-card-hymn-inline-toggle" for="' + meta.toggleName + '">' +
-                            '<input type="checkbox" id="' + meta.toggleName + '" name="' + meta.toggleName + '" value="1"' + (isChecked ? ' checked' : '') + '>' +
-                        '</label>';
-                }
+                stanzaHtml =
+                    '<input type="hidden" name="hymn_stanzas[' + originalIndex + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
+                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(rowKey) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>';
 
                 html +=
                     '<div class="service-card-hymn-row" data-row-key="' + rowKey + '" data-row-kind="base" draggable="false">' +
                         '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
                         '<input type="text" id="hymn_' + originalIndex + '" name="hymn_' + originalIndex + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup">' +
-                        toggleHtml +
+                        stanzaHtml +
                     '</div>';
                 return;
             }
@@ -3730,6 +3945,8 @@ window.oflcInitializePlannerUI = function (root) {
                     '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
                     '<input type="hidden" name="extra_hymn_keys[]" value="' + escapeHtml(extraRow.key) + '">' +
                     '<input type="text" name="extra_hymn_values[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
+                    '<input type="hidden" name="extra_hymn_stanzas[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
+                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>' +
                     '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
                         '<input type="hidden" class="js-extra-hymn-slot-hidden" name="extra_hymn_slots[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.slot_name) + '">' +
                         '<input type="text" class="service-card-text service-card-hymn-slot-input js-extra-hymn-slot-input" value="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution' : 'Other') + '" autocomplete="off">' +
@@ -3745,13 +3962,12 @@ window.oflcInitializePlannerUI = function (root) {
         hymnPane.innerHTML = html;
 
         bindHymnLookupBehavior(hymnPane);
+        bindStanzaButtonBehavior(hymnPane);
         bindExtraHymnSlotBehavior(hymnPane);
         bindHymnDragBehavior(hymnPane, serviceId);
         updateDuplicateTuneHighlights(hymnPane);
 
         var addExtraHymnLink = hymnPane.querySelector('#add-extra-hymn-link');
-        var openingProcessional = document.getElementById('opening_processional');
-        var closingRecessional = document.getElementById('closing_recessional');
 
         if (addExtraHymnLink) {
             addExtraHymnLink.addEventListener('click', function () {
@@ -3775,18 +3991,6 @@ window.oflcInitializePlannerUI = function (root) {
                 renderHymnPane(serviceId);
             });
         });
-
-        if (openingProcessional) {
-            openingProcessional.addEventListener('change', function () {
-                hymnState.opening_processional = openingProcessional.checked;
-            });
-        }
-
-        if (closingRecessional) {
-            closingRecessional.addEventListener('change', function () {
-                hymnState.closing_recessional = closingRecessional.checked;
-            });
-        }
 
         if (hymnRowOrderInput) {
             hymnRowOrderInput.value = JSON.stringify(hymnState.order);

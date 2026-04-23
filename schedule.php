@@ -147,6 +147,17 @@ function oflc_format_hymn_label(array $row): string
     return $label . ($insertUse ? '*' : '');
 }
 
+function oflc_format_schedule_hymn_label(array $row): string
+{
+    $label = oflc_format_hymn_label($row);
+    $stanzas = trim((string) ($row['stanzas'] ?? ''));
+    if ($stanzas !== '') {
+        $stanzas = preg_replace('/\s+/', ' ', $stanzas) ?? $stanzas;
+    }
+
+    return $stanzas !== '' ? $label . ': ' . trim($stanzas) : $label;
+}
+
 function oflc_normalize_hymn_tune($value): string
 {
     return strtolower(trim((string) $value));
@@ -299,7 +310,7 @@ function oflc_format_combined_leader_name(array $services): string
     }, $entries)));
 
     if (count($uniqueNames) === 1) {
-        return $uniqueNames[0];
+        return htmlspecialchars($uniqueNames[0], ENT_QUOTES, 'UTF-8');
     }
 
     usort($entries, static function (array $first, array $second): int {
@@ -310,8 +321,8 @@ function oflc_format_combined_leader_name(array $services): string
         return strcmp($first['date'], $second['date']);
     });
 
-    return implode(' ', array_map(static function (array $entry): string {
-        return $entry['name'] . ($entry['is_thursday'] ? ' (Th)' : '');
+    return implode('<br />', array_map(static function (array $entry): string {
+        return htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8') . ($entry['is_thursday'] ? ' (Th)' : '');
     }, $entries));
 }
 
@@ -504,6 +515,7 @@ if ($serviceIds !== []) {
         'SELECT
             hu.sunday_id AS service_id,
             hu.sort_order,
+            hu.stanzas,
             hd.id AS hymn_id,
             hd.hymnal,
             hd.hymn_number,
@@ -526,7 +538,7 @@ if ($serviceIds !== []) {
 
         $hymnsByService[$serviceId][] = [
             'hymn_id' => (int) ($hymnRow['hymn_id'] ?? 0),
-            'label' => oflc_format_hymn_label($hymnRow),
+            'label' => oflc_format_schedule_hymn_label($hymnRow),
             'tune' => trim((string) ($hymnRow['hymn_tune'] ?? '')),
         ];
     }
@@ -586,19 +598,34 @@ if (!$oflcScheduleEmbedded) {
         <?php if ($rubricYearOptions !== []): ?>
             <label class="schedule-filter-field">
                 <span>Schedule Year</span>
-                <select name="rubric_year" data-rubric-year-select="1">
-                    <option value="">Choose Year</option>
-                    <?php foreach ($rubricYearOptions as $rubricYearOption): ?>
-                        <option
-                            value="<?php echo htmlspecialchars((string) $rubricYearOption['key'], ENT_QUOTES, 'UTF-8'); ?>"
-                            data-start-date="<?php echo htmlspecialchars((string) $rubricYearOption['start_date'], ENT_QUOTES, 'UTF-8'); ?>"
-                            data-end-date="<?php echo htmlspecialchars((string) $rubricYearOption['end_date'], ENT_QUOTES, 'UTF-8'); ?>"
-                            <?php echo $filterRubricYear === (string) $rubricYearOption['key'] ? ' selected' : ''; ?>
-                        >
-                            <?php echo htmlspecialchars((string) $rubricYearOption['label'], ENT_QUOTES, 'UTF-8'); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                <input type="hidden" name="rubric_year" value="<?php echo htmlspecialchars($filterRubricYear, ENT_QUOTES, 'UTF-8'); ?>" data-rubric-year-input="1">
+                <div class="service-card-suggestion-anchor schedule-filter-select-anchor">
+                    <button
+                        type="button"
+                        class="service-card-selectlike"
+                        data-rubric-year-toggle="1"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                    >
+                        <span class="service-card-selectlike-label" data-rubric-year-label="1"><?php echo htmlspecialchars($selectedRubricYearOption['label'] ?? 'Choose Year', ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="service-card-selectlike-arrow" aria-hidden="true">&#9662;</span>
+                    </button>
+                    <div class="service-card-suggestion-list schedule-filter-rubric-list" data-rubric-year-list="1" hidden>
+                        <?php foreach ($rubricYearOptions as $rubricYearOption): ?>
+                            <button
+                                type="button"
+                                class="service-card-suggestion-item"
+                                data-rubric-year-option="1"
+                                data-value="<?php echo htmlspecialchars((string) $rubricYearOption['key'], ENT_QUOTES, 'UTF-8'); ?>"
+                                data-label="<?php echo htmlspecialchars((string) $rubricYearOption['label'], ENT_QUOTES, 'UTF-8'); ?>"
+                                data-start-date="<?php echo htmlspecialchars((string) $rubricYearOption['start_date'], ENT_QUOTES, 'UTF-8'); ?>"
+                                data-end-date="<?php echo htmlspecialchars((string) $rubricYearOption['end_date'], ENT_QUOTES, 'UTF-8'); ?>"
+                            >
+                                <?php echo htmlspecialchars((string) $rubricYearOption['label'], ENT_QUOTES, 'UTF-8'); ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
             </label>
         <?php endif; ?>
         <label class="schedule-filter-field">
@@ -729,7 +756,7 @@ if (!$oflcScheduleEmbedded) {
                             <?php endif; ?>
                         </td>
                         <td class="schedule-table-pastor">
-                            <?php echo $leaderDisplay !== '' ? htmlspecialchars($leaderDisplay, ENT_QUOTES, 'UTF-8') : '&nbsp;'; ?>
+                            <?php echo $leaderDisplay !== '' ? $leaderDisplay : '&nbsp;'; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -819,7 +846,11 @@ if (!$oflcScheduleEmbedded) {
     function bindScheduleFilters() {
         var root = getRoot();
         var form = getForm();
-        var rubricSelect;
+        var rubricInput;
+        var rubricToggleButton;
+        var rubricLabel;
+        var rubricList;
+        var rubricOptions;
         var startDateInput;
         var endDateInput;
         var sortOrderInput;
@@ -830,7 +861,11 @@ if (!$oflcScheduleEmbedded) {
             return;
         }
 
-        rubricSelect = form.querySelector('[data-rubric-year-select="1"]');
+        rubricInput = form.querySelector('[data-rubric-year-input="1"]');
+        rubricToggleButton = form.querySelector('[data-rubric-year-toggle="1"]');
+        rubricLabel = form.querySelector('[data-rubric-year-label="1"]');
+        rubricList = form.querySelector('[data-rubric-year-list="1"]');
+        rubricOptions = form.querySelectorAll('[data-rubric-year-option="1"]');
         startDateInput = form.querySelector('[data-schedule-date-field="start"]');
         endDateInput = form.querySelector('[data-schedule-date-field="end"]');
         sortOrderInput = form.querySelector('[data-schedule-sort-input="1"]');
@@ -842,79 +877,110 @@ if (!$oflcScheduleEmbedded) {
             requestSchedule(buildUrlFromForm(form));
         });
 
-        function isDefaultMonthWindow() {
-            var defaultRubricYear = root.getAttribute('data-default-rubric-year') || '';
-            var defaultStartDate = root.getAttribute('data-default-start-date') || '';
-            var defaultEndDate = root.getAttribute('data-default-end-date') || '';
+        function getRubricOptionByValue(value) {
+            var matchedOption = null;
 
-            return !!rubricSelect
-                && !!startDateInput
-                && !!endDateInput
-                && rubricSelect.value === defaultRubricYear
-                && startDateInput.value === defaultStartDate
-                && endDateInput.value === defaultEndDate;
-        }
-
-        function expandSelectedRubricYear() {
-            var selectedOption = rubricSelect ? rubricSelect.options[rubricSelect.selectedIndex] : null;
-
-            if (!selectedOption || selectedOption.value === '') {
-                return false;
-            }
-
-            if (!startDateInput || !endDateInput) {
-                return false;
-            }
-
-            startDateInput.value = selectedOption.getAttribute('data-start-date') || '';
-            endDateInput.value = selectedOption.getAttribute('data-end-date') || '';
-            requestSchedule(buildUrlFromForm(form));
-
-            return true;
-        }
-
-        if (rubricSelect) {
-            rubricSelect.addEventListener('mousedown', function (event) {
-                var selectedOption;
-
-                if (!isDefaultMonthWindow()) {
+            Array.prototype.forEach.call(rubricOptions || [], function (option) {
+                if (matchedOption || !option) {
                     return;
                 }
 
-                selectedOption = rubricSelect.options[rubricSelect.selectedIndex];
-                if (!selectedOption || selectedOption.value === '') {
-                    return;
+                if ((option.getAttribute('data-value') || '') === String(value || '')) {
+                    matchedOption = option;
                 }
-
-                if (
-                    startDateInput
-                    && endDateInput
-                    && startDateInput.value === (selectedOption.getAttribute('data-start-date') || '')
-                    && endDateInput.value === (selectedOption.getAttribute('data-end-date') || '')
-                ) {
-                    return;
-                }
-
-                event.preventDefault();
-                expandSelectedRubricYear();
             });
 
-            rubricSelect.addEventListener('change', function () {
-                var selectedOption = rubricSelect.options[rubricSelect.selectedIndex];
+            return matchedOption;
+        }
 
+        function syncRubricYearLabel() {
+            var selectedOption;
+            var labelText = 'Choose Year';
+
+            if (!rubricLabel) {
+                return;
+            }
+
+            selectedOption = getRubricOptionByValue(rubricInput ? rubricInput.value : '');
+            if (selectedOption) {
+                labelText = selectedOption.getAttribute('data-label') || labelText;
+            }
+
+            rubricLabel.textContent = labelText;
+        }
+
+        function hideRubricYearList() {
+            if (!rubricList) {
+                return;
+            }
+
+            rubricList.hidden = true;
+            rubricList.classList.remove('is-visible');
+            if (rubricToggleButton) {
+                rubricToggleButton.setAttribute('aria-expanded', 'false');
+            }
+        }
+
+        function showRubricYearList() {
+            if (!rubricList) {
+                return;
+            }
+
+            rubricList.hidden = false;
+            rubricList.classList.add('is-visible');
+            if (rubricToggleButton) {
+                rubricToggleButton.setAttribute('aria-expanded', 'true');
+            }
+        }
+
+        function toggleRubricYearList() {
+            if (!rubricList) {
+                return;
+            }
+
+            if (rubricList.classList.contains('is-visible')) {
+                hideRubricYearList();
+            } else {
+                showRubricYearList();
+            }
+        }
+
+        syncRubricYearLabel();
+
+        if (rubricToggleButton) {
+            rubricToggleButton.addEventListener('click', function () {
+                toggleRubricYearList();
+            });
+
+            rubricToggleButton.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') {
+                    hideRubricYearList();
+                }
+            });
+        }
+
+        Array.prototype.forEach.call(rubricOptions || [], function (option) {
+            option.addEventListener('mousedown', function (event) {
+                event.preventDefault();
+            });
+
+            option.addEventListener('click', function () {
                 isProgrammaticUpdate = true;
-                if (selectedOption && selectedOption.value !== '') {
-                    if (startDateInput) {
-                        startDateInput.value = selectedOption.getAttribute('data-start-date') || '';
-                    }
-                    if (endDateInput) {
-                        endDateInput.value = selectedOption.getAttribute('data-end-date') || '';
-                    }
+                if (rubricInput) {
+                    rubricInput.value = option.getAttribute('data-value') || '';
+                }
+                syncRubricYearLabel();
+                if (startDateInput) {
+                    startDateInput.value = option.getAttribute('data-start-date') || '';
+                }
+                if (endDateInput) {
+                    endDateInput.value = option.getAttribute('data-end-date') || '';
                 }
                 isProgrammaticUpdate = false;
+                hideRubricYearList();
                 requestSchedule(buildUrlFromForm(form));
             });
-        }
+        });
 
         [startDateInput, endDateInput].forEach(function (input) {
             if (!input) {
@@ -922,9 +988,11 @@ if (!$oflcScheduleEmbedded) {
             }
 
             input.addEventListener('change', function () {
-                if (!isProgrammaticUpdate && rubricSelect) {
-                    rubricSelect.value = '';
+                if (!isProgrammaticUpdate && rubricInput) {
+                    rubricInput.value = '';
+                    syncRubricYearLabel();
                 }
+                hideRubricYearList();
                 queueScheduleRequest(buildUrlFromForm(form), 50);
             });
         });
@@ -947,8 +1015,9 @@ if (!$oflcScheduleEmbedded) {
 
                 event.preventDefault();
                 isProgrammaticUpdate = true;
-                if (rubricSelect) {
-                    rubricSelect.value = resetRubricYear;
+                if (rubricInput) {
+                    rubricInput.value = resetRubricYear;
+                    syncRubricYearLabel();
                 }
                 if (startDateInput) {
                     startDateInput.value = resetStartDate;
@@ -960,9 +1029,34 @@ if (!$oflcScheduleEmbedded) {
                     sortOrderInput.value = resetSortOrder;
                 }
                 isProgrammaticUpdate = false;
+                hideRubricYearList();
                 requestSchedule(buildUrlFromForm(form));
             });
         }
+
+        if (document.oflcScheduleOutsideClickHandler) {
+            document.removeEventListener('click', document.oflcScheduleOutsideClickHandler);
+        }
+
+        document.oflcScheduleOutsideClickHandler = function (event) {
+            if (!rubricList || !rubricToggleButton) {
+                return;
+            }
+
+            if (!form.contains(event.target)) {
+                hideRubricYearList();
+                return;
+            }
+
+            if (
+                !rubricList.contains(event.target)
+                && !rubricToggleButton.contains(event.target)
+            ) {
+                hideRubricYearList();
+            }
+        };
+
+        document.addEventListener('click', document.oflcScheduleOutsideClickHandler);
     }
 
     bindScheduleFilters();

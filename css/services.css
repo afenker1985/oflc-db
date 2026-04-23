@@ -1,3 +1,36 @@
+:root {
+    --service-card-left-panel-width: 257px;
+    --service-card-readings-panel-width: 250px;
+    --service-card-hymns-panel-width: 371px;
+    --service-card-leader-panel-width: 140px;
+    --service-card-standard-hymn-width: 246px;
+    --update-service-visible-rows: 10;
+    --update-service-row-min-height: 44px;
+    --update-service-row-gap: 10px;
+    --update-service-list-min-height: calc(
+        (var(--update-service-visible-rows) * var(--update-service-row-min-height)) +
+        ((var(--update-service-visible-rows) - 1) * var(--update-service-row-gap))
+    );
+    --service-card-frame-width: calc(
+        var(--service-card-left-panel-width) +
+        var(--service-card-readings-panel-width) +
+        var(--service-card-hymns-panel-width) +
+        var(--service-card-leader-panel-width) +
+        6px
+    );
+}
+
+.service-card,
+.remove-service-search-panel,
+.remove-service-status,
+.service-card-actions,
+.remove-service-actions {
+    width: min(100%, var(--service-card-frame-width));
+    box-sizing: border-box;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .planning-form {
     margin-top: 20px;
 }
@@ -36,7 +69,11 @@
 
 .service-card-grid {
     display: grid;
-    grid-template-columns: 1.05fr 0.92fr 1.48fr 0.65fr;
+    grid-template-columns:
+        var(--service-card-left-panel-width)
+        var(--service-card-readings-panel-width)
+        var(--service-card-hymns-panel-width)
+        var(--service-card-leader-panel-width);
     align-items: stretch;
 }
 
@@ -339,6 +376,12 @@
     min-width: 0;
 }
 
+.service-card-hymn-row:not(.service-card-hymn-row-extra) .service-card-hymn-lookup {
+    flex: 0 0 var(--service-card-standard-hymn-width);
+    width: var(--service-card-standard-hymn-width);
+    max-width: 100%;
+}
+
 .service-card-hymn-row .service-card-hymn-lookup.service-card-hymn-lookup-duplicate-tune {
     background-color: #fff8d9;
     border-color: #d2a13e;
@@ -379,6 +422,122 @@
 
 .service-card-hymn-inline-toggle input {
     margin: 0;
+}
+
+.service-card-stanza-button {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid #8e97a3;
+    border-radius: 4px;
+    background-color: #d5dbe3;
+    color: #374151;
+    font: 700 12px/1 Arial, Helvetica, sans-serif;
+    text-transform: lowercase;
+    cursor: pointer;
+}
+
+.service-card-stanza-button.is-set {
+    border-color: #2d6b38;
+    background-color: #7cc08b;
+    color: #103718;
+}
+
+.service-card-stanza-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background-color: rgba(17, 24, 39, 0.42);
+    z-index: 2000;
+}
+
+.service-card-stanza-modal.is-visible {
+    display: flex;
+}
+
+.service-card-stanza-modal-dialog {
+    width: min(440px, 100%);
+    padding: 16px;
+    border: 1px solid #c9baa4;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fffdf7 0%, #f6efe1 100%);
+    box-shadow: 0 16px 36px rgba(17, 17, 17, 0.18);
+}
+
+.service-card-stanza-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.service-card-stanza-modal-title {
+    font: 700 17px Georgia, "Times New Roman", serif;
+    color: #2e2418;
+}
+
+.service-card-stanza-modal-close {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #b9aa94;
+    border-radius: 999px;
+    background-color: #fbf7ef;
+    color: #5f5243;
+    font: 700 18px/1 Arial, Helvetica, sans-serif;
+    cursor: pointer;
+}
+
+.service-card-stanza-modal-label {
+    display: block;
+    margin: 14px 0 6px;
+    font: 700 12px Arial, Helvetica, sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #5b4631;
+}
+
+.service-card-stanza-modal-input {
+    width: 100%;
+    min-height: 96px;
+    padding: 10px 12px;
+    border: 1px solid #b8a994;
+    border-radius: 8px;
+    box-sizing: border-box;
+    resize: vertical;
+    font: 15px Georgia, "Times New Roman", serif;
+    color: #2f2418;
+    background-color: #fffdf9;
+}
+
+.service-card-stanza-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.service-card-stanza-modal-button {
+    min-width: 76px;
+    padding: 7px 12px;
+    border-radius: 7px;
+    font: 700 13px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+}
+
+.service-card-stanza-modal-button-muted {
+    border: 1px solid #b9aa94;
+    background-color: #f5eee1;
+    color: #5f5243;
+}
+
+.service-card-stanza-modal-button-primary {
+    border: 1px solid #2d6b38;
+    background-color: #3d8a4c;
+    color: #ffffff;
 }
 
 .service-card-hymn-instruction {
@@ -451,6 +610,24 @@
 
 .service-card-color-black {
     color: #111111;
+}
+
+.service-card.service-card-color-black,
+.service-card.service-card-color-black .service-card-display-date,
+.service-card.service-card-color-black .service-card-liturgical-day,
+.service-card.service-card-color-black .service-card-readings,
+.service-card.service-card-color-black .service-card-hymns,
+.service-card.service-card-color-black .service-card-notes,
+.service-card.service-card-color-black .service-card-meta,
+.service-card.service-card-color-black .service-card-latin-name,
+.service-card.service-card-color-black .service-card-color-line,
+.service-card.service-card-color-black .service-card-service-summary,
+.service-card.service-card-color-black .service-card-label,
+.service-card.service-card-color-black .service-card-text,
+.service-card.service-card-color-black .service-card-select,
+.service-card.service-card-color-black .service-card-hymn-row input {
+    color: #111111;
+    font-weight: 700;
 }
 
 .planning-result {
@@ -744,6 +921,24 @@
     background-color: #ffffff;
 }
 
+.schedule-filter-select-anchor {
+    min-width: 180px;
+}
+
+.schedule-filter-select-anchor .service-card-selectlike {
+    min-height: 35px;
+}
+
+.schedule-filter-select-anchor .service-card-suggestion-list {
+    max-width: none;
+}
+
+.schedule-filter-rubric-list {
+    min-height: 112px;
+    max-height: 112px;
+    overflow-y: auto;
+}
+
 .schedule-filter-actions {
     display: inline-flex;
     align-items: center;
@@ -806,6 +1001,43 @@
 
 .update-service-filter-form {
     margin-bottom: 14px;
+}
+
+.update-service-toolbar {
+    width: min(100%, var(--service-card-frame-width));
+    margin: 0 auto 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px 18px;
+}
+
+.update-service-search-panel {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.update-service-search-panel label {
+    display: block;
+    font-weight: bold;
+}
+
+.update-service-search-input {
+    width: 320px;
+    max-width: min(100vw - 32px, 320px);
+}
+
+#update-service-filter-root {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.update-service-filter-form {
+    justify-content: flex-end;
+    margin-bottom: 0;
 }
 
 .schedule-filter-reset {
@@ -935,6 +1167,7 @@ tr.is-selected td {
 .schedule-table tbody tr.service-card-color-black td,
 .schedule-table tbody tr.service-card-color-black td * {
     color: #111111;
+    font-weight: 700;
 }
 
 .schedule-col-date,
@@ -1002,7 +1235,7 @@ body.update-service-page {
 }
 
 body.update-service-page .container {
-    height: calc(100dvh - 80px);
+    height: calc(100dvh - 24px);
     display: flex;
     flex-direction: column;
 }
@@ -1021,6 +1254,7 @@ body.update-service-page .content {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 body.update-service-page .content > h3:first-child {
@@ -1031,8 +1265,9 @@ body.update-service-page .content > h3:first-child {
     width: 100%;
     max-width: none;
     margin: 0 auto;
-    flex: 1 1 auto;
+    flex: 1 0 var(--update-service-list-min-height);
     min-height: 0;
+    max-height: 100%;
     overflow-y: auto;
     padding-right: 6px;
     font-family: Georgia, "Times New Roman", Times, serif;
@@ -1218,7 +1453,7 @@ body.update-service-page .content > h3:first-child {
     cursor: pointer;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
     .service-card-grid {
         grid-template-columns: 1fr 1fr;
     }
