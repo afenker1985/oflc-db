@@ -58,6 +58,7 @@ function oflc_update_get_liturgical_color_text_class($color): string
         case 'pink':
             return 'service-card-color-rose';
         case 'scarlet':
+            return 'service-card-color-scarlet';
         case 'red':
             return 'service-card-color-red';
         case 'black':
@@ -3871,6 +3872,7 @@ include 'includes/header.php';
                 'service-card-color-violet',
                 'service-card-color-blue',
                 'service-card-color-rose',
+                'service-card-color-scarlet',
                 'service-card-color-red',
                 'service-card-color-black'
             ];
@@ -5148,7 +5150,7 @@ include 'includes/header.php';
                     blue: 'service-card-color-blue',
                     rose: 'service-card-color-rose',
                     pink: 'service-card-color-rose',
-                    scarlet: 'service-card-color-red',
+                    scarlet: 'service-card-color-scarlet',
                     red: 'service-card-color-red',
                     black: 'service-card-color-black',
                     white: 'service-card-color-dark'

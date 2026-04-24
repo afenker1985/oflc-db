@@ -252,6 +252,7 @@ function oflc_get_liturgical_color_text_class($color): string
         case 'pink':
             return 'service-card-color-rose';
         case 'scarlet':
+            return 'service-card-color-scarlet';
         case 'red':
             return 'service-card-color-red';
         case 'black':
@@ -2906,8 +2907,6 @@ window.oflcInitializePlannerUI = function (root) {
         return Array.prototype.map.call(readingDraftState || [], function (draft, index) {
             return {
                 index: draft && draft.index ? draft.index : index + 1,
-                set_name: draft && draft.set_name ? draft.set_name : '',
-                year_pattern: draft && draft.year_pattern ? draft.year_pattern : '',
                 old_testament: draft && draft.old_testament ? draft.old_testament : '',
                 psalm: draft && draft.psalm ? draft.psalm : '',
                 epistle: draft && draft.epistle ? draft.epistle : '',
@@ -4280,8 +4279,6 @@ window.oflcInitializePlannerUI = function (root) {
         readingsPane.innerHTML = html;
         readingDraftState[0] = {
             index: parseInt(readingEditorDraft.index || '1', 10) || 1,
-            set_name: (readingDraftState[0] && readingDraftState[0].set_name) || '',
-            year_pattern: (readingDraftState[0] && readingDraftState[0].year_pattern) || '',
             psalm: readingEditorDraft.psalm || '',
             old_testament: readingEditorDraft.old_testament || '',
             epistle: readingEditorDraft.epistle || '',
@@ -4416,7 +4413,7 @@ window.oflcInitializePlannerUI = function (root) {
             blue: 'service-card-color-blue',
             rose: 'service-card-color-rose',
             pink: 'service-card-color-rose',
-            scarlet: 'service-card-color-red',
+            scarlet: 'service-card-color-scarlet',
             red: 'service-card-color-red',
             black: 'service-card-color-black',
             white: 'service-card-color-dark'

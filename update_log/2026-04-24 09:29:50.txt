@@ -1,0 +1,45 @@
+# Add-Service Reading UI and Scarlet Color Fixes
+
+Timestamp: 2026-04-24 09:29:50
+
+## Summary
+
+This update makes two UI fixes:
+
+- keeps `add-service` reading-set entry focused on the actual reading fields only
+- gives DB color `scarlet` its own display color instead of treating it as bright red
+
+## Fixes
+
+### 1. Remove `Set Name` and `Year Pattern` from add-service reading entry
+
+- Cleaned up the `add-service` reading editor state so new reading-set entry only uses:
+  - `Psalm`
+  - `Old Testament`
+  - `Epistle`
+  - `Gospel`
+- Removed the leftover `set_name` / `year_pattern` handling from the `add-service` front-end reading draft state.
+- This keeps the add-service UI aligned with the simplified reading-entry flow.
+
+### 2. Scarlet should not display as bright red
+
+- Added a dedicated UI class for `scarlet` using color `#B13232`.
+- Kept `red` as bright red `#FF0000`.
+- Updated scarlet color mapping anywhere it is rendered in the service-management UI, including:
+  - `add-service.php`
+  - `update-service.php`
+  - `schedule.php`
+  - `remove-service.php`
+  - `css/services.css`
+
+## Result
+
+- `scarlet` observances now render distinctly from `red`.
+- `add-service` reading entry remains limited to the reading-reference fields the UI should expose.
+
+## Verification
+
+- `php -l add-service.php` passes.
+- `php -l update-service.php` passes.
+- `php -l schedule.php` passes.
+- `php -l remove-service.php` passes.

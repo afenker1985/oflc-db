@@ -604,6 +604,10 @@
     color: #b7557a;
 }
 
+.service-card-color-scarlet {
+    color: #b13232;
+}
+
 .service-card-color-red {
     color: #ff0000;
 }
@@ -1200,6 +1204,12 @@ tr.is-selected td {
 .schedule-table tbody tr.service-card-color-rose td,
 .schedule-table tbody tr.service-card-color-rose td * {
     color: #b7557a;
+}
+
+.schedule-table tbody tr.service-card-color-scarlet,
+.schedule-table tbody tr.service-card-color-scarlet td,
+.schedule-table tbody tr.service-card-color-scarlet td * {
+    color: #b13232;
 }
 
 .schedule-table tbody tr.service-card-color-red,
