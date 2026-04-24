@@ -371,6 +371,14 @@
     font: 700 13px/1 Arial, Helvetica, sans-serif;
 }
 
+.service-card-drag-handle-disabled {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    opacity: 0.45;
+}
+
 .service-card-hymn-row .service-card-hymn-lookup {
     flex: 1 1 auto;
     min-width: 0;

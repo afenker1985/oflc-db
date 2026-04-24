@@ -1,0 +1,27 @@
+# Bug/UI fixes summary
+
+Date: 2026-04-24 13:32:11
+
+## Update Service
+
+- Search now indexes all active services, not just the currently filtered rows.
+- When a searched service is outside the current filter range, the page now jumps to that service's date and opens it.
+- Closing Hymn now stays in the last fixed slot for communion settings, even when some Distribution Hymn slots are blank.
+- Midweek reading editing no longer breaks the page after render/save; the server-rendered reading pane now matches the current midweek reading UI structure.
+
+## Add Service
+
+- Suggestion-style dropdowns now select reliably on click/tap instead of requiring a second click in some browsers.
+- The selection behavior was tightened for observance, service setting, leader/fill-hymns style dropdown interactions to avoid blur timing issues.
+
+## Site UI
+
+- Browser tab title now uses `OFLC Service Scheduler`.
+- The `Database` menu was converted to a gear (`⚙`) menu and moved to the right side of the main navigation.
+
+## Verification
+
+- `php -l update-service.php`
+- `php -l add-service.php`
+- `php -l includes/header.php`
+- Full DB-backed page rendering could not be completed in the sandbox because the local SQL connection is blocked there.

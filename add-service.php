@@ -8,6 +8,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
 require_once __DIR__ . '/includes/liturgical_colors.php';
+require_once __DIR__ . '/includes/hymn_layout.php';
 
 function oflc_request_value(array $request_data, string $key, string $default = ''): string
 {
@@ -621,7 +622,7 @@ function oflc_normalize_extra_hymn_rows(array $request_data): array
     return $rows;
 }
 
-function oflc_fetch_hymn_fill_templates(PDO $pdo): array
+function oflc_fetch_hymn_fill_templates(PDO $pdo, array $serviceSettingsById, array $hymnSlots): array
 {
     $stmt = $pdo->query(
         'SELECT
@@ -672,7 +673,7 @@ function oflc_fetch_hymn_fill_templates(PDO $pdo): array
                 'liturgical_calendar_id' => (int) ($row['liturgical_calendar_id'] ?? 0),
                 'observance_name' => $observance_name,
                 'label' => trim($observance_name . ' ' . $service_year),
-                'hymns' => [],
+                'usage_rows' => [],
             ];
         }
 
@@ -686,15 +687,139 @@ function oflc_fetch_hymn_fill_templates(PDO $pdo): array
             continue;
         }
 
-        $templates[$service_id]['hymns'][] = [
+        $templates[$service_id]['usage_rows'][] = [
             'label' => $label,
             'slot_name' => trim((string) ($row['slot_name'] ?? 'Other Hymn')),
             'sort_order' => (int) ($row['sort_order'] ?? 1),
             'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
+            'hymnal' => trim((string) ($row['hymnal'] ?? '')),
+            'hymn_number' => trim((string) ($row['hymn_number'] ?? '')),
+            'hymn_title' => trim((string) ($row['hymn_title'] ?? '')),
         ];
     }
 
+    foreach ($templates as &$template) {
+        $serviceSettingId = (string) ((int) ($template['service_setting_id'] ?? 0));
+        $serviceSettingDetail = $serviceSettingsById[$serviceSettingId] ?? null;
+        $definitions = oflc_build_hymn_field_definitions($serviceSettingDetail, $hymnSlots);
+        $template['hymn_state'] = oflc_build_hymn_editor_state($definitions, $template['usage_rows'] ?? []);
+    }
+    unset($template);
+
     return array_values($templates);
+}
+
+function oflc_find_definition_index(array $definitions, string $slotName, int $sortOrder = 1): ?int
+{
+    foreach ($definitions as $definition) {
+        if ((string) ($definition['slot_name'] ?? '') === $slotName && (int) ($definition['sort_order'] ?? 1) === $sortOrder) {
+            return (int) ($definition['index'] ?? 0);
+        }
+    }
+
+    return null;
+}
+
+function oflc_find_definition_index_by_display_order(array $definitions, int $displaySortOrder): ?int
+{
+    if ($displaySortOrder <= 0) {
+        return null;
+    }
+
+    foreach ($definitions as $definition) {
+        if ((int) ($definition['index'] ?? 0) === $displaySortOrder) {
+            return $displaySortOrder;
+        }
+    }
+
+    return null;
+}
+
+function oflc_normalize_hymn_slot_name(string $slotName): string
+{
+    if ($slotName === 'Processional Hymn') {
+        return 'Opening Hymn';
+    }
+
+    if ($slotName === 'Recessional Hymn') {
+        return 'Closing Hymn';
+    }
+
+    return $slotName;
+}
+
+function oflc_build_hymn_editor_state(array $definitions, array $usageRows): array
+{
+    $hymns = [];
+    $order = [];
+    foreach ($definitions as $definition) {
+        $definitionIndex = (int) ($definition['index'] ?? 0);
+        if ($definitionIndex <= 0) {
+            continue;
+        }
+
+        $hymns[$definitionIndex] = '';
+        $order[] = 'base:' . $definitionIndex;
+    }
+
+    $state = [
+        'hymns' => $hymns,
+        'stanzas' => [],
+        'extra_rows' => [],
+        'order' => $order,
+        'next_extra_id' => 1,
+    ];
+    $slotOccurrenceCounts = [];
+    $definitionCount = count($definitions);
+    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && count($usageRows) <= $definitionCount;
+
+    foreach ($usageRows as $row) {
+        $slotName = oflc_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
+        $displaySortOrder = (int) ($row['sort_order'] ?? 0);
+        $label = oflc_format_hymn_suggestion_label_with_id($row);
+        $targetIndex = null;
+
+        if ($label === '') {
+            continue;
+        }
+
+        if ($slotName !== '' && $slotName !== 'Other Hymn') {
+            $slotOccurrenceCounts[$slotName] = ($slotOccurrenceCounts[$slotName] ?? 0) + 1;
+            $targetIndex = oflc_find_definition_index($definitions, $slotName, $slotOccurrenceCounts[$slotName]);
+            if ($targetIndex === null) {
+                $targetIndex = oflc_find_definition_index($definitions, $slotName, 1);
+            }
+        } elseif ($canRepairOtherHymnRowsByPosition) {
+            $targetIndex = oflc_find_definition_index_by_display_order($definitions, $displaySortOrder);
+        }
+
+        if ($targetIndex !== null && isset($state['hymns'][$targetIndex]) && $state['hymns'][$targetIndex] === '') {
+            $state['hymns'][$targetIndex] = $label;
+            $state['stanzas'][$targetIndex] = oflc_normalize_stanza_text($row['stanzas'] ?? '');
+            continue;
+        }
+
+        $extraKey = 'extra:' . $state['next_extra_id'];
+        $state['next_extra_id']++;
+        $state['extra_rows'][] = [
+            'key' => $extraKey,
+            'value' => $label,
+            'slot_name' => $slotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+            'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
+        ];
+        if ($displaySortOrder > 0) {
+            array_splice(
+                $state['order'],
+                min(max($displaySortOrder - 1, 0), count($state['order'])),
+                0,
+                [$extraKey]
+            );
+        } else {
+            $state['order'][] = $extraKey;
+        }
+    }
+
+    return $state;
 }
 
 function oflc_normalize_selected_reading_set_id($value): ?int
@@ -1102,7 +1227,18 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
         ];
     }
 
-    return [];
+    for ($index = 1; $index <= 8; $index++) {
+        $definitions[] = [
+            'index' => $index,
+            'label' => $slot_label('Other Hymn', 'Other Hymn') . ' ' . $index,
+            'slot_name' => 'Other Hymn',
+            'sort_order' => $index,
+            'toggle_name' => null,
+            'toggle_label' => null,
+        ];
+    }
+
+    return $definitions;
 }
 
 function oflc_insert_service_small_catechism_links(PDO $pdo, int $serviceId, array $smallCatechismIds, string $today): void
@@ -1253,6 +1389,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $is_add_submit = true;
     } elseif (isset($_POST['auto_preview'])) {
         $request_data = $_POST;
+        $preview_service_date = trim((string) ($_POST['preview_service_date'] ?? ''));
+        if ($preview_service_date !== '') {
+            $request_data['service_date'] = $preview_service_date;
+        }
     } else {
         $_SESSION[$form_state_key] = $_POST;
         header('Location: add-service.php', true, 303);
@@ -1312,7 +1452,7 @@ $passion_reading_options = oflc_fetch_passion_reading_options($pdo);
 $hymn_slots = oflc_fetch_hymn_slots($pdo);
 $leaders = oflc_fetch_active_leaders($pdo);
 $leader_catalog_payload = oflc_build_leader_catalog_payload($leaders);
-$hymn_fill_templates = oflc_fetch_hymn_fill_templates($pdo);
+$hymn_fill_templates = [];
 $service_settings_by_id = [];
 $small_catechism_by_id = [];
 $small_catechism_lookup = [];
@@ -1331,6 +1471,8 @@ $observance_catalog_payload = [
 foreach ($service_settings as $service_setting) {
     $service_settings_by_id[(string) $service_setting['id']] = $service_setting;
 }
+
+$hymn_fill_templates = oflc_fetch_hymn_fill_templates($pdo, $service_settings_by_id, $hymn_slots);
 
 foreach ($small_catechism_options as $small_catechism_option) {
     $small_catechism_id = (int) ($small_catechism_option['id'] ?? 0);
@@ -1800,12 +1942,12 @@ if ($is_add_submit && $date_error === null) {
         $ordered_hymn_row_keys = array_merge(array_keys($base_hymn_rows), array_keys($extra_hymn_rows_by_key));
     }
 
-    $all_hymn_rows = $base_hymn_rows + $extra_hymn_rows_by_key;
-    foreach (array_keys($all_hymn_rows) as $row_key) {
-        if (!in_array($row_key, $ordered_hymn_row_keys, true)) {
-            $ordered_hymn_row_keys[] = $row_key;
-        }
-    }
+    $canonical_hymn_rows = oflc_hymn_layout_build_canonical_rows(
+        $hymn_field_definitions,
+        $base_hymn_rows,
+        $extra_hymn_rows_by_key,
+        $ordered_hymn_row_keys
+    );
 
     $hymn_entries = [];
     $definitions_by_index = [];
@@ -1816,12 +1958,8 @@ if ($is_add_submit && $date_error === null) {
         }
     }
 
-    foreach ($ordered_hymn_row_keys as $display_position => $row_key) {
-        if (!isset($all_hymn_rows[$row_key])) {
-            continue;
-        }
-
-        $row = $all_hymn_rows[$row_key];
+    foreach ($canonical_hymn_rows as $display_position => $row) {
+        $row_key = (string) ($row['key'] ?? '');
         $hymn_value = trim((string) ($row['value'] ?? ''));
         if ($hymn_value === '') {
             continue;
@@ -2117,6 +2255,7 @@ include 'includes/header.php';
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
     >
         <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
+        <input type="hidden" name="preview_service_date" id="preview_service_date" value="<?php echo htmlspecialchars($selected_date, ENT_QUOTES, 'UTF-8'); ?>">
         <input type="hidden" name="hymn_row_order" id="hymn_row_order" value="<?php echo htmlspecialchars(json_encode(array_values($submitted_hymn_row_order), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
         <?php if ($hymn_suggestions !== []): ?>
             <datalist id="hymn-options">
@@ -2454,7 +2593,7 @@ function oflcResetReadingSelection(form) {
     });
 }
 
-function oflcSubmitPlannerPreview(form, resetReadings) {
+function oflcSubmitPlannerPreview(form, resetReadings, overrides) {
     var autoPreview = form.querySelector('#auto-preview-flag');
     var formData;
 
@@ -2467,6 +2606,9 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
     }
 
     formData = new FormData(form);
+    Object.keys(overrides || {}).forEach(function (key) {
+        formData.set(key, overrides[key]);
+    });
 
     fetch(form.action, {
         method: 'POST',
@@ -2498,6 +2640,17 @@ function oflcSubmitPlannerPreview(form, resetReadings) {
         .catch(function () {
             window.location.reload();
         });
+}
+
+function oflcSubmitPlannerRefresh(form) {
+    var autoPreview = form.querySelector('#auto-preview-flag');
+
+    oflcResetReadingSelection(form);
+    if (autoPreview) {
+        autoPreview.value = '';
+    }
+
+    form.submit();
 }
 
 function oflcClearPlanner(form) {
@@ -2546,6 +2699,7 @@ var hymnTunesById = <?php echo json_encode($hymn_catalog['tune_by_id'], JSON_UNE
 window.oflcInitializePlannerUI = function (root) {
     var form = root.querySelector('#add-service-form');
     var serviceDateInput = root.querySelector('#service_date');
+    var previewServiceDateInput = root.querySelector('#preview_service_date');
     var serviceSettingInput = root.querySelector('#service_setting_name');
     var serviceSettingIdInput = root.querySelector('#service_setting');
     var serviceSettingSuggestionList = root.querySelector('.js-service-setting-suggestion-list');
@@ -2880,18 +3034,7 @@ window.oflcInitializePlannerUI = function (root) {
             button.type = 'button';
             button.className = 'service-card-suggestion-item';
             button.textContent = name;
-            button.addEventListener('mousedown', function (event) {
-                event.preventDefault();
-            });
-            button.addEventListener('click', function () {
-                observanceInput.value = name;
-                updateObservanceDetails(true);
-                hideObservanceSuggestionOptions();
-                observanceInput.focus();
-                if (typeof observanceInput.setSelectionRange === 'function') {
-                    observanceInput.setSelectionRange(observanceInput.value.length, observanceInput.value.length);
-                }
-            });
+            button.setAttribute('data-observance-suggestion', name);
 
             observanceSuggestionList.appendChild(button);
         });
@@ -2919,19 +3062,41 @@ window.oflcInitializePlannerUI = function (root) {
         observanceSuggestionList.innerHTML = '';
     }
 
-    function queueDatePreview(delay) {
-        if (!serviceDateInput) {
+    function chooseObservanceSuggestion(name) {
+        var selectedDate = String(serviceDateInput && serviceDateInput.value ? serviceDateInput.value : '').trim();
+        var detail = findObservanceDetailByName(name);
+
+        observanceInput.value = name;
+        observanceIdInput.value = detail && detail.id ? String(detail.id) : '';
+        hideObservanceSuggestionOptions();
+        if (previewServiceDateInput) {
+            previewServiceDateInput.value = selectedDate;
+        }
+        oflcSubmitPlannerRefresh(form);
+    }
+
+    function bindObservanceSuggestionList() {
+        if (!observanceSuggestionList || observanceSuggestionList.dataset.bound === '1') {
             return;
         }
 
-        if (datePreviewTimer !== null) {
-            window.clearTimeout(datePreviewTimer);
-        }
+        observanceSuggestionList.dataset.bound = '1';
+        observanceSuggestionList.addEventListener('mousedown', function (event) {
+            var button = event.target.closest('[data-observance-suggestion]');
+            if (!button) {
+                return;
+            }
 
-        datePreviewTimer = window.setTimeout(function () {
-            datePreviewTimer = null;
-            oflcSubmitPlannerPreview(form, true);
-        }, delay);
+            event.preventDefault();
+            event.stopPropagation();
+            chooseObservanceSuggestion(button.getAttribute('data-observance-suggestion') || '');
+        });
+        observanceSuggestionList.addEventListener('click', function (event) {
+            if (event.target.closest('[data-observance-suggestion]')) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
     }
 
     function getServiceSettingSuggestionSource(preferAllSuggestions) {
@@ -2967,18 +3132,7 @@ window.oflcInitializePlannerUI = function (root) {
             button.type = 'button';
             button.className = 'service-card-suggestion-item';
             button.textContent = name;
-            button.addEventListener('mousedown', function (event) {
-                event.preventDefault();
-            });
-            button.addEventListener('click', function () {
-                serviceSettingInput.value = name;
-                updateSummary();
-                hideServiceSettingSuggestionOptions();
-                serviceSettingInput.focus();
-                if (typeof serviceSettingInput.setSelectionRange === 'function') {
-                    serviceSettingInput.setSelectionRange(serviceSettingInput.value.length, serviceSettingInput.value.length);
-                }
-            });
+            button.setAttribute('data-service-setting-suggestion', name);
 
             serviceSettingSuggestionList.appendChild(button);
         });
@@ -2999,6 +3153,39 @@ window.oflcInitializePlannerUI = function (root) {
         serviceSettingSuggestionList.hidden = true;
         serviceSettingSuggestionList.classList.remove('is-visible');
         serviceSettingSuggestionList.innerHTML = '';
+    }
+
+    function chooseServiceSettingSuggestion(name) {
+        var detail = findServiceSettingDetailByName(name);
+
+        serviceSettingInput.value = name;
+        serviceSettingIdInput.value = detail && detail.id ? String(detail.id) : '';
+        hideServiceSettingSuggestionOptions();
+        updateSummary();
+    }
+
+    function bindServiceSettingSuggestionList() {
+        if (!serviceSettingSuggestionList || serviceSettingSuggestionList.dataset.bound === '1') {
+            return;
+        }
+
+        serviceSettingSuggestionList.dataset.bound = '1';
+        serviceSettingSuggestionList.addEventListener('mousedown', function (event) {
+            var button = event.target.closest('[data-service-setting-suggestion]');
+            if (!button) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            chooseServiceSettingSuggestion(button.getAttribute('data-service-setting-suggestion') || '');
+        });
+        serviceSettingSuggestionList.addEventListener('click', function (event) {
+            if (event.target.closest('[data-service-setting-suggestion]')) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
     }
 
     function cloneReadingDrafts() {
@@ -3222,6 +3409,16 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
 
+    function bindSuggestionButtonSelection(button, onSelect) {
+        button.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+            onSelect();
+        });
+        button.addEventListener('click', function (event) {
+            event.preventDefault();
+        });
+    }
+
     function renderSimpleSuggestionOptions(input, list, options, onSelect) {
         if (!list) {
             return;
@@ -3234,10 +3431,7 @@ window.oflcInitializePlannerUI = function (root) {
             button.type = 'button';
             button.className = 'service-card-suggestion-item';
             button.textContent = name;
-            button.addEventListener('mousedown', function (event) {
-                event.preventDefault();
-            });
-            button.addEventListener('click', function () {
+            bindSuggestionButtonSelection(button, function () {
                 onSelect(name);
                 list.hidden = true;
                 list.classList.remove('is-visible');
@@ -3359,6 +3553,136 @@ window.oflcInitializePlannerUI = function (root) {
         return definitions;
     }
 
+    function findHymnDefinitionIndex(definitions, slotName, sortOrder) {
+        var match = null;
+
+        Array.prototype.some.call(definitions || [], function (definition) {
+            if (String(definition && definition.slot_name ? definition.slot_name : '') !== String(slotName || '')) {
+                return false;
+            }
+            if (parseInt(definition && definition.sort_order ? definition.sort_order : '1', 10) !== parseInt(sortOrder || '1', 10)) {
+                return false;
+            }
+
+            match = parseInt(definition && definition.index ? definition.index : '0', 10) || 0;
+            return true;
+        });
+
+        return match && match > 0 ? match : null;
+    }
+
+    function findHymnDefinitionIndexByDisplayOrder(definitions, displaySortOrder) {
+        var requestedOrder = parseInt(displaySortOrder || '0', 10) || 0;
+        var match = null;
+
+        if (requestedOrder <= 0) {
+            return null;
+        }
+
+        Array.prototype.some.call(definitions || [], function (definition) {
+            if ((parseInt(definition && definition.index ? definition.index : '0', 10) || 0) !== requestedOrder) {
+                return false;
+            }
+
+            match = requestedOrder;
+            return true;
+        });
+
+        return match;
+    }
+
+    function normalizeTemplateHymnSlotName(slotName) {
+        if (slotName === 'Processional Hymn') {
+            return 'Opening Hymn';
+        }
+
+        if (slotName === 'Recessional Hymn') {
+            return 'Closing Hymn';
+        }
+
+        return slotName;
+    }
+
+    function buildHymnStateFromUsageRows(definitions, usageRows) {
+        var nextState = {
+            hymns: {},
+            stanzas: {},
+            extra_rows: [],
+            order: [],
+            next_extra_id: 1
+        };
+        var slotOccurrenceCounts = {};
+        var canRepairOtherHymnRowsByPosition = Array.isArray(definitions)
+            && definitions.length > 0
+            && Array.isArray(usageRows)
+            && usageRows.length <= definitions.length;
+
+        Array.prototype.forEach.call(definitions || [], function (definition) {
+            var definitionIndex = parseInt(definition && definition.index ? definition.index : '0', 10) || 0;
+
+            if (definitionIndex <= 0) {
+                return;
+            }
+
+            nextState.hymns[String(definitionIndex)] = '';
+            nextState.order.push('base:' + String(definitionIndex));
+        });
+
+        Array.prototype.forEach.call(usageRows || [], function (row) {
+            var slotName = normalizeTemplateHymnSlotName(String(row && row.slot_name ? row.slot_name : '').trim());
+            var displaySortOrder = parseInt(row && row.sort_order ? row.sort_order : '0', 10) || 0;
+            var label = String(row && row.label ? row.label : '').trim();
+            var stanzas = normalizeStanzaText(row && row.stanzas ? row.stanzas : '');
+            var targetIndex = null;
+            var extraKey;
+
+            if (label === '') {
+                return;
+            }
+
+            if (slotName !== '' && slotName !== 'Other Hymn') {
+                slotOccurrenceCounts[slotName] = (slotOccurrenceCounts[slotName] || 0) + 1;
+                targetIndex = findHymnDefinitionIndex(definitions, slotName, slotOccurrenceCounts[slotName]);
+                if (targetIndex === null) {
+                    targetIndex = findHymnDefinitionIndex(definitions, slotName, 1);
+                }
+            } else if (canRepairOtherHymnRowsByPosition) {
+                targetIndex = findHymnDefinitionIndexByDisplayOrder(definitions, displaySortOrder);
+            }
+
+            if (targetIndex !== null
+                && Object.prototype.hasOwnProperty.call(nextState.hymns, String(targetIndex))
+                && String(nextState.hymns[String(targetIndex)] || '').trim() === '') {
+                nextState.hymns[String(targetIndex)] = label;
+                if (stanzas !== '') {
+                    nextState.stanzas[String(targetIndex)] = stanzas;
+                }
+                return;
+            }
+
+            extraKey = 'extra:' + String(nextState.next_extra_id);
+            nextState.next_extra_id += 1;
+            nextState.extra_rows.push({
+                key: extraKey,
+                value: label,
+                slot_name: slotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+                stanzas: stanzas
+            });
+
+            if (displaySortOrder > 0) {
+                nextState.order.splice(
+                    Math.min(Math.max(displaySortOrder - 1, 0), nextState.order.length),
+                    0,
+                    extraKey
+                );
+            } else {
+                nextState.order.push(extraKey);
+            }
+        });
+
+        return nextState;
+    }
+
     function findExtraHymnRow(key) {
         return hymnState.extra_rows.find(function (row) {
             return String(row.key) === String(key);
@@ -3382,7 +3706,9 @@ window.oflcInitializePlannerUI = function (root) {
         var primaryLeaderValue = String(primaryLeaderInput && primaryLeaderInput.value ? primaryLeaderInput.value : '').trim();
         var secondaryLeaderValue = String(secondaryLeaderInput && secondaryLeaderInput.value ? secondaryLeaderInput.value : '').trim();
         var hasSelectedReading = String(selectedReadingSetId || '').trim() !== '';
-        var hasSelectedPassionReading = String(selectedPassionReadingId || '').trim() !== '';
+        var hasSelectedPassionReading = (selectedPassionReadingIds || []).some(function (value) {
+            return String(value || '').trim() !== '';
+        });
         var hasSelectedCatechism = (selectedSmallCatechismLabels || []).some(function (label) {
             return String(label || '').trim() !== '';
         });
@@ -3500,20 +3826,222 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
 
+    function getHymnLayoutMode(definitions) {
+        var slotNames = Array.prototype.map.call(definitions || [], function (definition) {
+            return String(definition && definition.slot_name ? definition.slot_name : '').trim();
+        }).filter(function (slotName) {
+            return slotName !== '';
+        });
+
+        if (slotNames.indexOf('Chief Hymn') !== -1 && slotNames.indexOf('Closing Hymn') !== -1 && slotNames.indexOf('Distribution Hymn') !== -1) {
+            return 'divine_service';
+        }
+
+        if (slotNames.indexOf('Office Hymn') !== -1 && slotNames.indexOf('Closing Hymn') !== -1) {
+            return 'office';
+        }
+
+        return 'generic';
+    }
+
+    function normalizeExtraHymnSlotNameForLayout(slotName, layoutMode) {
+        var normalized = String(slotName || '').trim();
+
+        if (layoutMode === 'divine_service') {
+            return normalized === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn';
+        }
+
+        return 'Other Hymn';
+    }
+
+    function buildCanonicalDisplayRows(definitions) {
+        var layoutMode = getHymnLayoutMode(definitions);
+        var baseRowsByKey = {};
+        var extraRowsByKey = {};
+        var orderedKeys = [];
+        var openingOtherRows = [];
+        var middleOtherRows = [];
+        var postDistributionOtherRows = [];
+        var extraDistributionRows = [];
+        var lastBaseIndex = 0;
+        var canonicalRows = [];
+        var appendBaseRow = function (definitionIndex) {
+            var rowKey = 'base:' + String(definitionIndex);
+            if (baseRowsByKey[rowKey]) {
+                canonicalRows.push(baseRowsByKey[rowKey]);
+            }
+        };
+
+        Array.prototype.forEach.call(definitions || [], function (definition) {
+            var definitionIndex = parseInt(definition && definition.index ? definition.index : '0', 10) || 0;
+
+            if (definitionIndex <= 0) {
+                return;
+            }
+
+            baseRowsByKey['base:' + String(definitionIndex)] = {
+                key: 'base:' + String(definitionIndex),
+                kind: 'base',
+                originalIndex: String(definitionIndex),
+                slotName: String(definition && definition.slot_name ? definition.slot_name : ''),
+                value: String((hymnState.hymns || {})[String(definitionIndex)] || ''),
+                stanzas: normalizeStanzaText((hymnState.stanzas || {})[String(definitionIndex)] || ''),
+                label: String(definition && definition.label ? definition.label : '')
+            };
+        });
+
+        hymnState.extra_rows = Array.prototype.map.call(hymnState.extra_rows || [], function (row) {
+            return {
+                key: String(row && row.key ? row.key : ''),
+                value: String(row && row.value ? row.value : ''),
+                slot_name: normalizeExtraHymnSlotNameForLayout(row && row.slot_name ? row.slot_name : '', layoutMode),
+                stanzas: normalizeStanzaText(row && row.stanzas ? row.stanzas : '')
+            };
+        }).filter(function (row) {
+            return row.key !== '';
+        });
+
+        hymnState.extra_rows.forEach(function (row) {
+            extraRowsByKey[row.key] = {
+                key: row.key,
+                kind: 'extra',
+                value: String(row.value || ''),
+                slotName: String(row.slot_name || 'Other Hymn'),
+                stanzas: normalizeStanzaText(row.stanzas || '')
+            };
+        });
+
+        Array.prototype.forEach.call(hymnState.order || [], function (rowKey) {
+            rowKey = String(rowKey || '');
+            if (!rowKey) {
+                return;
+            }
+            if ((baseRowsByKey[rowKey] || extraRowsByKey[rowKey]) && orderedKeys.indexOf(rowKey) === -1) {
+                orderedKeys.push(rowKey);
+            }
+        });
+        Object.keys(baseRowsByKey).forEach(function (rowKey) {
+            if (orderedKeys.indexOf(rowKey) === -1) {
+                orderedKeys.push(rowKey);
+            }
+        });
+        Object.keys(extraRowsByKey).forEach(function (rowKey) {
+            if (orderedKeys.indexOf(rowKey) === -1) {
+                orderedKeys.push(rowKey);
+            }
+        });
+
+        if (layoutMode === 'generic') {
+            canonicalRows = orderedKeys.map(function (rowKey) {
+                return baseRowsByKey[rowKey] || extraRowsByKey[rowKey] || null;
+            }).filter(function (row) {
+                return !!row;
+            });
+        } else {
+            orderedKeys.forEach(function (rowKey) {
+                var row;
+
+                if (rowKey.indexOf('base:') === 0) {
+                    lastBaseIndex = parseInt(rowKey.replace('base:', ''), 10) || 0;
+                    return;
+                }
+
+                row = extraRowsByKey[rowKey];
+                if (!row) {
+                    return;
+                }
+
+                if (layoutMode === 'divine_service' && row.slotName === 'Distribution Hymn') {
+                    extraDistributionRows.push(row);
+                    return;
+                }
+
+                if (layoutMode === 'divine_service') {
+                    if (lastBaseIndex <= 1) {
+                        openingOtherRows.push(row);
+                    } else if (lastBaseIndex <= 2) {
+                        middleOtherRows.push(row);
+                    } else {
+                        postDistributionOtherRows.push(row);
+                    }
+                    return;
+                }
+
+                if (lastBaseIndex <= 1) {
+                    openingOtherRows.push(row);
+                } else {
+                    middleOtherRows.push(row);
+                }
+            });
+
+            if (layoutMode === 'divine_service') {
+                appendBaseRow(1);
+                openingOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                appendBaseRow(2);
+                middleOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                [3, 4, 5, 6, 7].forEach(appendBaseRow);
+                extraDistributionRows.forEach(function (row) { canonicalRows.push(row); });
+                postDistributionOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                appendBaseRow(8);
+            } else {
+                appendBaseRow(1);
+                openingOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                appendBaseRow(2);
+                middleOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                appendBaseRow(3);
+            }
+        }
+
+        (function assignLabels() {
+            var distributionIndex = 0;
+
+            canonicalRows.forEach(function (row) {
+                if (row.slotName === 'Distribution Hymn') {
+                    distributionIndex += 1;
+                    row.label = 'Distribution Hymn ' + String(distributionIndex);
+                } else if (row.kind === 'extra') {
+                    row.label = 'Additional hymn';
+                }
+            });
+        }());
+
+        hymnState.order = canonicalRows.map(function (row) {
+            return String(row.key || '');
+        }).filter(function (rowKey) {
+            return rowKey !== '';
+        });
+        hymnState.next_extra_id = Math.max(
+            parseInt(hymnState.next_extra_id || '1', 10) || 1,
+            (hymnState.extra_rows || []).length + 1
+        );
+
+        if (hymnRowOrderInput) {
+            hymnRowOrderInput.value = JSON.stringify(hymnState.order);
+        }
+
+        return {
+            layoutMode: layoutMode,
+            rows: canonicalRows
+        };
+    }
+
     function bindExtraHymnSlotBehavior(scope) {
         var slotInputs = scope.querySelectorAll('.js-extra-hymn-slot-input');
+        var currentServiceId = serviceSettingIdInput ? (serviceSettingIdInput.value || '') : '';
+        var definitions = hymnDefinitionsByService[currentServiceId] || [];
+        var layoutMode = getHymnLayoutMode(definitions);
 
         Array.prototype.forEach.call(slotInputs, function (input) {
             var anchor = input.closest('.service-card-suggestion-anchor');
             var list = anchor ? anchor.querySelector('.js-extra-hymn-slot-suggestion-list') : null;
             var hidden = anchor ? anchor.querySelector('.js-extra-hymn-slot-hidden') : null;
-            var currentServiceId = serviceSettingIdInput ? (serviceSettingIdInput.value || '') : '';
 
             function syncSlot(value) {
                 var slotValue = String(value || '').trim().toLowerCase() === 'distribution' ? 'Distribution Hymn' : 'Other Hymn';
                 var row = input.closest('.service-card-hymn-row');
                 var previousSlotValue = row ? (row.getAttribute('data-extra-slot-name') || 'Other Hymn') : 'Other Hymn';
 
+                slotValue = normalizeExtraHymnSlotNameForLayout(slotValue, layoutMode);
                 input.value = slotValue === 'Distribution Hymn' ? 'Distribution' : 'Other';
                 if (hidden) {
                     hidden.value = slotValue;
@@ -3545,7 +4073,7 @@ window.oflcInitializePlannerUI = function (root) {
             }
 
             function showSlotOptions() {
-                renderSimpleSuggestionOptions(input, list, ['Distribution', 'Other'], function (name) {
+                renderSimpleSuggestionOptions(input, list, layoutMode === 'divine_service' ? ['Distribution', 'Other'] : ['Other'], function (name) {
                     syncSlotAndRefresh(name);
                 });
             }
@@ -3744,32 +4272,37 @@ window.oflcInitializePlannerUI = function (root) {
 
     function bindHymnDragBehavior(scope, serviceId) {
         var draggedRowKey = null;
+        var draggedRowKind = '';
 
         Array.prototype.forEach.call(scope.querySelectorAll('.service-card-hymn-row'), function (row) {
             var handle = row.querySelector('.service-card-drag-handle');
+            var rowKind = row.getAttribute('data-row-kind') || '';
 
-            if (!handle) {
-                return;
+            if (handle) {
+                handle.addEventListener('dragstart', function (event) {
+                    draggedRowKey = row.getAttribute('data-row-key');
+                    draggedRowKind = rowKind;
+                    row.classList.add('is-dragging');
+                    if (event.dataTransfer) {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', draggedRowKey || '');
+                    }
+                });
+
+                handle.addEventListener('dragend', function () {
+                    draggedRowKey = null;
+                    draggedRowKind = '';
+                    row.classList.remove('is-dragging');
+                    Array.prototype.forEach.call(scope.querySelectorAll('.service-card-hymn-row'), function (candidate) {
+                        candidate.classList.remove('is-drop-target');
+                    });
+                });
             }
 
-            handle.addEventListener('dragstart', function (event) {
-                draggedRowKey = row.getAttribute('data-row-key');
-                row.classList.add('is-dragging');
-                if (event.dataTransfer) {
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', draggedRowKey || '');
-                }
-            });
-
-            handle.addEventListener('dragend', function () {
-                draggedRowKey = null;
-                row.classList.remove('is-dragging');
-                Array.prototype.forEach.call(scope.querySelectorAll('.service-card-hymn-row'), function (candidate) {
-                    candidate.classList.remove('is-drop-target');
-                });
-            });
-
             row.addEventListener('dragover', function (event) {
+                if (!draggedRowKey) {
+                    return;
+                }
                 event.preventDefault();
                 row.classList.add('is-drop-target');
             });
@@ -3780,18 +4313,55 @@ window.oflcInitializePlannerUI = function (root) {
 
             row.addEventListener('drop', function (event) {
                 var targetKey;
+                var targetKind;
+                var sourceIndex;
+                var targetIndex;
+                var sourceValue;
+                var targetValue;
+                var sourceStanzas;
+                var targetStanzas;
                 var fromIndex;
                 var toIndex;
 
                 event.preventDefault();
                 row.classList.remove('is-drop-target');
                 targetKey = row.getAttribute('data-row-key');
+                targetKind = row.getAttribute('data-row-kind') || '';
 
                 if (!draggedRowKey || !targetKey || draggedRowKey === targetKey) {
                     return;
                 }
 
                 captureHymnState();
+                if (draggedRowKind === 'base') {
+                    if (targetKind !== 'base') {
+                        return;
+                    }
+
+                    sourceIndex = String(draggedRowKey).replace('base:', '');
+                    targetIndex = String(targetKey).replace('base:', '');
+                    sourceValue = String((hymnState.hymns || {})[sourceIndex] || '');
+                    targetValue = String((hymnState.hymns || {})[targetIndex] || '');
+                    sourceStanzas = normalizeStanzaText((hymnState.stanzas || {})[sourceIndex] || '');
+                    targetStanzas = normalizeStanzaText((hymnState.stanzas || {})[targetIndex] || '');
+
+                    hymnState.hymns[sourceIndex] = targetValue;
+                    hymnState.hymns[targetIndex] = sourceValue;
+                    if (targetStanzas === '') {
+                        delete hymnState.stanzas[sourceIndex];
+                    } else {
+                        hymnState.stanzas[sourceIndex] = targetStanzas;
+                    }
+                    if (sourceStanzas === '') {
+                        delete hymnState.stanzas[targetIndex];
+                    } else {
+                        hymnState.stanzas[targetIndex] = sourceStanzas;
+                    }
+
+                    renderHymnPane(serviceId);
+                    return;
+                }
+
                 fromIndex = hymnState.order.indexOf(draggedRowKey);
                 toIndex = hymnState.order.indexOf(targetKey);
                 if (fromIndex === -1 || toIndex === -1) {
@@ -3896,42 +4466,57 @@ window.oflcInitializePlannerUI = function (root) {
             return String(candidate && candidate.id ? candidate.id : '') === String(serviceId || '');
         });
         var definitions;
-        var orderedHymns;
-        var nextExtraRows = [];
+        var templateState;
+        var usageRows;
+        var rebuiltState;
 
         if (!template) {
             return;
         }
 
         definitions = normalizeHymnState(serviceSettingIdInput.value || '');
-        orderedHymns = Array.isArray(template.hymns) ? template.hymns.slice() : [];
+        usageRows = Array.isArray(template && template.usage_rows) ? template.usage_rows : [];
+        rebuiltState = buildHymnStateFromUsageRows(definitions, usageRows);
+        templateState = rebuiltState && typeof rebuiltState === 'object' && Object.keys(rebuiltState.hymns || {}).length > 0
+            ? rebuiltState
+            : (template && template.hymn_state && typeof template.hymn_state === 'object' ? template.hymn_state : null);
 
-        hymnState.hymns = {};
-        hymnState.stanzas = {};
-        hymnState.order = [];
-
-        definitions.forEach(function (definition, index) {
-            var hymn = orderedHymns[index] || null;
-            hymnState.hymns[String(definition.index)] = hymn && hymn.label ? String(hymn.label) : '';
-            if (hymn && hymn.stanzas) {
-                hymnState.stanzas[String(definition.index)] = normalizeStanzaText(hymn.stanzas);
-            }
-            hymnState.order.push('base:' + String(definition.index));
-        });
-
-        orderedHymns.slice(definitions.length).forEach(function (hymn) {
-            var key = 'extra:' + String(hymnState.next_extra_id || 1);
-            nextExtraRows.push({
-                key: key,
-                value: hymn && hymn.label ? String(hymn.label) : '',
-                slot_name: hymn && hymn.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
-                stanzas: hymn && hymn.stanzas ? normalizeStanzaText(hymn.stanzas) : ''
+        if (templateState) {
+            hymnState.hymns = Object.keys(templateState.hymns || {}).reduce(function (result, key) {
+                result[String(key)] = String((templateState.hymns || {})[key] || '');
+                return result;
+            }, {});
+            hymnState.stanzas = Object.keys(templateState.stanzas || {}).reduce(function (result, key) {
+                result[String(key)] = normalizeStanzaText((templateState.stanzas || {})[key] || '');
+                return result;
+            }, {});
+            hymnState.extra_rows = Array.prototype.map.call(templateState.extra_rows || [], function (row) {
+                return {
+                    key: String(row && row.key ? row.key : ''),
+                    value: String(row && row.value ? row.value : ''),
+                    slot_name: row && row.slot_name === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
+                    stanzas: normalizeStanzaText(row && row.stanzas ? row.stanzas : '')
+                };
+            }).filter(function (row) {
+                return row.key !== '';
             });
-            hymnState.order.push(key);
-            hymnState.next_extra_id = (parseInt(hymnState.next_extra_id || '1', 10) || 1) + 1;
-        });
+            hymnState.order = Array.prototype.map.call(templateState.order || [], function (key) {
+                return String(key || '');
+            }).filter(function (key) {
+                return key !== '';
+            });
+            hymnState.next_extra_id = Math.max(
+                parseInt(templateState.next_extra_id || '1', 10) || 1,
+                hymnState.extra_rows.length + 1
+            );
+        } else {
+            hymnState.hymns = {};
+            hymnState.stanzas = {};
+            hymnState.extra_rows = [];
+            hymnState.order = [];
+            hymnState.next_extra_id = 1;
+        }
 
-        hymnState.extra_rows = nextExtraRows;
         renderHymnPane(serviceSettingIdInput.value || '');
     }
 
@@ -3975,10 +4560,7 @@ window.oflcInitializePlannerUI = function (root) {
             button.type = 'button';
             button.className = 'service-card-suggestion-item';
             button.textContent = String(template && template.label ? template.label : '');
-            button.addEventListener('mousedown', function (event) {
-                event.preventDefault();
-            });
-            button.addEventListener('click', function () {
+            bindSuggestionButtonSelection(button, function () {
                 setFillHymnsLabel(String(template && template.label ? template.label : ''));
                 fillHymnsIdInput.value = String(template && template.id ? template.id : '');
                 fillHymnsSuggestionList.hidden = true;
@@ -3996,20 +4578,10 @@ window.oflcInitializePlannerUI = function (root) {
 
     function renderHymnPane(serviceId) {
         var definitions = normalizeHymnState(serviceId);
-        var orderedBaseKeys = [];
-        var baseRankByKey = {};
-        var rowMetaByKey = {};
-        var distributionIndex = 0;
+        var displayState = buildCanonicalDisplayRows(definitions);
+        var layoutMode = displayState.layoutMode;
+        var displayRows = displayState.rows;
         var html = '';
-
-        hymnState.order.forEach(function (rowKey) {
-            if (rowKey.indexOf('base:') === 0) {
-                orderedBaseKeys.push(rowKey);
-            }
-        });
-        orderedBaseKeys.forEach(function (rowKey, index) {
-            baseRankByKey[rowKey] = index;
-        });
 
         if (definitions.length > 0) {
             html += '<div class="service-card-hymn-instruction">Click "s" to input stanzas for a hymn.</div>';
@@ -4018,66 +4590,11 @@ window.oflcInitializePlannerUI = function (root) {
             }
         }
 
-        hymnState.order.forEach(function (rowKey) {
-            var meta;
-
-            if (rowKey.indexOf('base:') === 0) {
-                var definition = definitions[baseRankByKey[rowKey]];
-                var label;
-                var slotName;
-
-                if (!definition) {
-                    return;
-                }
-                slotName = String(definition.slot_name || '');
-
-                if (slotName === 'Distribution Hymn') {
-                    distributionIndex += 1;
-                    label = 'Distribution Hymn ' + String(distributionIndex);
-                } else {
-                    label = String(definition.label || '');
-                }
-
-                rowMetaByKey[rowKey] = {
-                    kind: 'base',
-                    originalIndex: rowKey.replace('base:', ''),
-                    value: hymnState.hymns[rowKey.replace('base:', '')] || '',
-                    stanzas: normalizeStanzaText((hymnState.stanzas || {})[rowKey.replace('base:', '')] || ''),
-                    label: label,
-                    slotName: slotName
-                };
-                return;
-            }
-
-            var extraRow = findExtraHymnRow(rowKey);
-            if (!extraRow) {
-                return;
-            }
-
-            if (extraRow.slot_name === 'Distribution Hymn') {
-                distributionIndex += 1;
-            }
-
-            rowMetaByKey[rowKey] = {
-                kind: 'extra',
-                extraRow: extraRow,
-                stanzas: normalizeStanzaText(extraRow.stanzas || ''),
-                label: extraRow.slot_name === 'Distribution Hymn'
-                    ? 'Distribution Hymn ' + String(distributionIndex)
-                    : 'Additional hymn',
-                slotName: extraRow.slot_name
-            };
-        });
-
-        hymnState.order.forEach(function (rowKey) {
+        displayRows.forEach(function (meta) {
             var originalIndex;
             var value;
+            var extraRow;
             var stanzaHtml = '';
-
-            meta = rowMetaByKey[rowKey];
-            if (!meta) {
-                return;
-            }
 
             if (meta.kind === 'base') {
                 originalIndex = meta.originalIndex;
@@ -4085,18 +4602,23 @@ window.oflcInitializePlannerUI = function (root) {
 
                 stanzaHtml =
                     '<input type="hidden" name="hymn_stanzas[' + originalIndex + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
-                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(rowKey) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>';
+                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>';
 
                 html +=
-                    '<div class="service-card-hymn-row" data-row-key="' + rowKey + '" data-row-kind="base" draggable="false">' +
-                        '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Reorder hymn">::</button>' +
+                    '<div class="service-card-hymn-row" data-row-key="' + escapeHtml(meta.key) + '" data-row-kind="base" draggable="false">' +
+                        '<button type="button" class="service-card-drag-handle" draggable="true" aria-label="Move hymn to a different slot">::</button>' +
                         '<input type="text" id="hymn_' + originalIndex + '" name="hymn_' + originalIndex + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup">' +
                         stanzaHtml +
                     '</div>';
                 return;
             }
 
-            var extraRow = meta.extraRow;
+            extraRow = {
+                key: meta.key,
+                slot_name: meta.slotName,
+                value: meta.value,
+                stanzas: meta.stanzas
+            };
 
             html +=
                 '<div class="service-card-hymn-row service-card-hymn-row-extra" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-kind="extra" data-extra-slot-name="' + escapeHtml(extraRow.slot_name) + '" data-slot-name="' + escapeHtml(extraRow.slot_name) + '" draggable="false">' +
@@ -4111,10 +4633,10 @@ window.oflcInitializePlannerUI = function (root) {
                         '<div class="service-card-suggestion-list js-extra-hymn-slot-suggestion-list" hidden></div>' +
                     '</div>' +
                     '<button type="button" class="service-card-remove-hymn-button" data-remove-row-key="' + escapeHtml(extraRow.key) + '" aria-label="Remove hymn">&times;</button>' +
-                '</div>';
+                    '</div>';
         });
 
-        if (definitions.length > 0 || hymnState.extra_rows.length > 0) {
+        if (definitions.length > 0 || hymnState.extra_rows.length > 0 || layoutMode !== 'generic') {
             html += '<button type="button" class="service-card-hymn-add-link service-card-reading-rubric" id="add-extra-hymn-link">To add an additional hymn, click here</button>';
         }
         hymnPane.innerHTML = html;
@@ -4310,7 +4832,7 @@ window.oflcInitializePlannerUI = function (root) {
         selectedReadingSetId = '';
         selectedNewReadingSet = '';
         selectedSmallCatechismLabels = [''];
-        selectedPassionReadingId = '';
+        selectedPassionReadingIds = [];
         readingsPane.innerHTML = '&nbsp;';
     }
 
@@ -4425,7 +4947,7 @@ window.oflcInitializePlannerUI = function (root) {
             selectedReadingSetId = '';
             selectedNewReadingSet = '';
             selectedSmallCatechismLabels = [''];
-            selectedPassionReadingId = '';
+            selectedPassionReadingIds = [];
         }
 
         if (detail && detail.id) {
@@ -4509,13 +5031,22 @@ window.oflcInitializePlannerUI = function (root) {
         });
     }
     if (serviceDateInput) {
-        serviceDateInput.addEventListener('change', function () {
-            queueDatePreview(0);
-        });
+        if (previewServiceDateInput) {
+            previewServiceDateInput.value = String(serviceDateInput.value || '').trim();
+        }
         serviceDateInput.addEventListener('input', function () {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(String(serviceDateInput.value || '').trim()) || String(serviceDateInput.value || '').trim() === '') {
-                queueDatePreview(120);
+            if (previewServiceDateInput) {
+                previewServiceDateInput.value = String(serviceDateInput.value || '').trim();
             }
+        });
+        serviceDateInput.addEventListener('change', function () {
+            var selectedDate = String(serviceDateInput.value || '').trim();
+            if (previewServiceDateInput) {
+                previewServiceDateInput.value = selectedDate;
+            }
+            window.setTimeout(function () {
+                oflcSubmitPlannerRefresh(form);
+            }, 0);
         });
     }
     newObservanceColorSelect.addEventListener('change', function () {
@@ -4577,6 +5108,8 @@ window.oflcInitializePlannerUI = function (root) {
     }
     hideServiceSettingSuggestionOptions();
     hideObservanceSuggestionOptions();
+    bindObservanceSuggestionList();
+    bindServiceSettingSuggestionList();
     updateSummary();
     updateObservanceDetails(false);
     syncSecondaryLeaderVisibility();

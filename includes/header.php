@@ -1,5 +1,6 @@
 <?php
-$page_title = isset($page_title) ? $page_title : 'Hymn Database';
+$page_title = isset($page_title) ? $page_title : 'OFLC Service Scheduler';
+$site_title = 'OFLC Service Scheduler';
 $stylesheet_files = isset($stylesheet_files) && is_array($stylesheet_files) && $stylesheet_files !== []
     ? $stylesheet_files
     : [
@@ -10,11 +11,6 @@ $stylesheet_files = isset($stylesheet_files) && is_array($stylesheet_files) && $
 $body_class = isset($body_class) ? trim((string) $body_class) : '';
 
 $nav_dropdowns = [
-    'Database' => [
-        ['href' => 'leaders.php', 'label' => 'Leaders'],
-        ['href' => 'church-year.php', 'label' => 'Church Year'],
-        ['href' => 'schedule-year.php', 'label' => 'Schedule Year'],
-    ],
     'Hymns' => [
         ['href' => 'hymns.php', 'label' => 'Hymn Database'],
         ['href' => 'hymn-reports.php', 'label' => 'Hymn Reports'],
@@ -24,6 +20,11 @@ $nav_dropdowns = [
         ['href' => 'update-service.php', 'label' => 'Update a Service'],
         ['href' => 'remove-service.php', 'label' => 'Remove/Restore Service'],
     ],
+];
+$database_nav_items = [
+    ['href' => 'leaders.php', 'label' => 'Leaders'],
+    ['href' => 'church-year.php', 'label' => 'Church Year'],
+    ['href' => 'schedule-year.php', 'label' => 'Schedule Year'],
 ];
 
 foreach ($nav_dropdowns as &$nav_dropdown_items) {
@@ -35,13 +36,19 @@ foreach ($nav_dropdowns as &$nav_dropdown_items) {
     );
 }
 unset($nav_dropdown_items);
+usort(
+    $database_nav_items,
+    static function (array $left, array $right): int {
+        return strcasecmp((string) ($left['label'] ?? ''), (string) ($right['label'] ?? ''));
+    }
+);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8'); ?></title>
+    <title><?php echo htmlspecialchars($site_title, ENT_QUOTES, 'UTF-8'); ?></title>
     <?php foreach ($stylesheet_files as $stylesheet_file): ?>
         <?php
         $stylesheet_path = __DIR__ . '/../' . $stylesheet_file;
@@ -79,6 +86,18 @@ unset($nav_dropdown_items);
                     </li>
                 <?php endforeach; ?>
                 <li><a href="schedule.php">Service Schedule</a></li>
+                <li class="nav-item-has-dropdown nav-item-right nav-item-gear">
+                    <a href="#" class="nav-link-with-caret" aria-haspopup="true" aria-label="Database">⚙</a>
+                    <ul class="nav-dropdown">
+                        <?php foreach ($database_nav_items as $menu_item): ?>
+                            <li>
+                                <a href="<?php echo htmlspecialchars((string) ($menu_item['href'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                                    <?php echo htmlspecialchars((string) ($menu_item['label'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </li>
             </ul>
         </div>
 

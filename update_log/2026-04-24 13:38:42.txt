@@ -1,0 +1,13 @@
+# Bug/UI fixes summary
+
+Date: 2026-04-24 13:38:42
+
+## Add Service
+
+- Repaired the left-column custom dropdown selection flow for Observance and Service Setting.
+- Choosing a suggestion now commits the selected value without immediately reopening the same suggestion list.
+- Added a small suppression step after selection so the input's focus/click handlers do not cancel the chosen value by reopening the dropdown right away.
+
+## Verification
+
+- `php -l add-service.php`

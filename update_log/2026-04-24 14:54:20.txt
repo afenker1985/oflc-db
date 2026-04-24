@@ -1,0 +1,27 @@
+# Update Summary
+
+Timestamp: 2026-04-24 14:54:20
+
+## Files Added
+
+- `includes/hymn_layout.php`
+
+## Main Updates
+
+- Reworked hymn slot handling in `update-service.php` and `add-service.php` so Divine Service layouts keep fixed base slots as `Opening`, `Chief`, `Distribution 1-5`, and `Closing`, while Matins/Vespers keep `Opening`, `Office`, and `Closing`.
+- Added canonical hymn-layout helpers in `includes/hymn_layout.php` so both add/update screens share the same PHP slot-normalization and save-order rules.
+- Updated `Fill Hymns` in `add-service.php` to rebuild hymns against the currently selected service layout, so copied hymns retain slot meaning more reliably.
+- Adjusted hymn save behavior so blank fixed slots remain blank, extra `Distribution` hymns stay after the fifth distribution slot, and invalid extra-slot choices normalize correctly for Divine Service vs. Matins/Vespers.
+- Restored hymn drag-and-drop on both add/update screens with the intended rules:
+  - dragging a fixed-slot hymn onto another fixed slot swaps hymn assignments between those slots
+  - dragging an extra hymn reorders that extra hymn positionally
+  - extra `Other` hymns remain `Other` and do not become fixed slots by drag alone
+- Updated hymn drag UI in `css/services.css` to match the new behavior.
+- Changed `update-service` search so it searches all available services instead of only the services currently shown by the active page filter.
+- Simplified `update-service` search behavior so focusing the search box clears the current rubric/date filter first, reloads the full list, preserves the typed search value, and returns focus to the search field so typing can continue immediately without a second click.
+
+## Verification
+
+- `php -l includes/hymn_layout.php`
+- `php -l add-service.php`
+- `php -l update-service.php`

@@ -1,0 +1,14 @@
+# Update Summary
+
+Timestamp: 2026-04-24 14:57:35
+
+## Main Updates
+
+- Updated `update-service.php` so submitting `Update Service` preserves the current search term instead of clearing it.
+- Added a hidden `return_search` field to each update form and sync it from the top search box on submit.
+- Included the current search term in the post-update redirect so the page reloads with the same search still applied.
+- Kept the existing `expanded_service` / `updated_service` redirect behavior so the service that was just updated remains open after the save.
+
+## Verification
+
+- `php -l update-service.php`
