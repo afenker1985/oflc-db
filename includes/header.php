@@ -13,6 +13,7 @@ $nav_dropdowns = [
     'Database' => [
         ['href' => 'leaders.php', 'label' => 'Leaders'],
         ['href' => 'church-year.php', 'label' => 'Church Year'],
+        ['href' => 'schedule-year.php', 'label' => 'Schedule Year'],
     ],
     'Hymns' => [
         ['href' => 'hymns.php', 'label' => 'Hymn Database'],

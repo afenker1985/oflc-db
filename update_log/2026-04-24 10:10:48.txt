@@ -1,0 +1,42 @@
+# Schedule Year and Church Year Menu Updates
+
+Timestamp: 2026-04-24 10:10:48
+
+## Summary
+
+This update splits the old `church-year.php` page into two separate pages:
+
+- `schedule-year.php` now holds the existing schedule-year settings screen
+- `church-year.php` now serves as a placeholder page for future lectionary editing
+
+## Changes
+
+### 1. Renamed `church-year.php` to `schedule-year.php`
+
+- Moved the existing schedule settings page from `church-year.php` to `schedule-year.php`.
+- Updated the page title, heading, form action, and save redirect so the renamed page is self-consistent.
+
+### 2. Added Schedule Year to the Database menu
+
+- Updated `includes/header.php` so the Database menu now includes:
+  - `Leaders`
+  - `Church Year`
+  - `Schedule Year`
+
+### 3. Created new placeholder `church-year.php`
+
+- Added a new `church-year.php` page.
+- The page currently displays:
+  - `This page will edit the lectionary.`
+
+## Result
+
+- `schedule-year.php` now contains the existing schedule-year configuration UI.
+- `church-year.php` remains available in the Database menu as the future lectionary editor placeholder.
+- Both pages are now separately accessible from the Database menu.
+
+## Verification
+
+- `php -l schedule-year.php` passes.
+- `php -l church-year.php` passes.
+- `php -l includes/header.php` passes.
