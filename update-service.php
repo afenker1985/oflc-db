@@ -1447,6 +1447,34 @@ function oflc_update_find_definition_index(array $definitions, string $slotName,
     return null;
 }
 
+function oflc_update_find_definition_index_by_display_order(array $definitions, int $displaySortOrder): ?int
+{
+    if ($displaySortOrder <= 0) {
+        return null;
+    }
+
+    foreach ($definitions as $definition) {
+        if ((int) ($definition['index'] ?? 0) === $displaySortOrder) {
+            return $displaySortOrder;
+        }
+    }
+
+    return null;
+}
+
+function oflc_update_normalize_hymn_slot_name(string $slotName): string
+{
+    if ($slotName === 'Processional Hymn') {
+        return 'Opening Hymn';
+    }
+
+    if ($slotName === 'Recessional Hymn') {
+        return 'Closing Hymn';
+    }
+
+    return $slotName;
+}
+
 function oflc_update_build_hymn_editor_state(array $definitions, array $usageRows): array
 {
     $hymns = [];
@@ -1467,25 +1495,27 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
         'next_extra_id' => 1,
     ];
     $slotOccurrenceCounts = [];
+    $definitionCount = count($definitions);
+    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && count($usageRows) <= $definitionCount;
 
     foreach ($usageRows as $row) {
-        $slotName = trim((string) ($row['slot_name'] ?? ''));
+        $slotName = oflc_update_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
+        $displaySortOrder = (int) ($row['sort_order'] ?? 0);
         $label = oflc_update_format_hymn_suggestion_label($row);
+        $targetIndex = null;
 
         if ($label === '') {
             continue;
         }
 
-        if ($slotName === 'Processional Hymn') {
-            $slotName = 'Opening Hymn';
-        } elseif ($slotName === 'Recessional Hymn') {
-            $slotName = 'Closing Hymn';
-        }
-
-        $slotOccurrenceCounts[$slotName] = ($slotOccurrenceCounts[$slotName] ?? 0) + 1;
-        $targetIndex = oflc_update_find_definition_index($definitions, $slotName, $slotOccurrenceCounts[$slotName]);
-        if ($targetIndex === null) {
-            $targetIndex = oflc_update_find_definition_index($definitions, $slotName, 1);
+        if ($slotName !== '' && $slotName !== 'Other Hymn') {
+            $slotOccurrenceCounts[$slotName] = ($slotOccurrenceCounts[$slotName] ?? 0) + 1;
+            $targetIndex = oflc_update_find_definition_index($definitions, $slotName, $slotOccurrenceCounts[$slotName]);
+            if ($targetIndex === null) {
+                $targetIndex = oflc_update_find_definition_index($definitions, $slotName, 1);
+            }
+        } elseif ($canRepairOtherHymnRowsByPosition) {
+            $targetIndex = oflc_update_find_definition_index_by_display_order($definitions, $displaySortOrder);
         }
 
         if ($targetIndex !== null && isset($state['hymns'][$targetIndex]) && $state['hymns'][$targetIndex] === '') {

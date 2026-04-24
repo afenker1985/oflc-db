@@ -1,0 +1,33 @@
+# Update-Service Hymn Slot Repair
+
+Timestamp: 2026-04-24 09:26:04
+
+## Summary
+
+This update fixes incorrect hymn rendering in `update-service` where many services were showing hymns as `Other Hymn` even though the database still preserved their real service positions.
+
+## Problem
+
+- Some services in `hymn_usage_db` had rows whose `slot_id` pointed to `Other Hymn`, even though their `sort_order` still matched normal fixed positions in the service.
+- The `update-service` hymn-state builder was reconstructing the editor mostly from slot-name occurrence counts.
+- That caused legitimate fixed-position hymns such as Opening, Chief, Distribution, and Closing hymns to fall into `Other Hymn` or extra-row handling for affected services.
+
+## Fix
+
+- Updated `update-service.php` so hymn rows still use the stored slot when it is specific and trustworthy.
+- Added a fallback repair path for legacy/corrupted `Other Hymn` rows:
+  - if the row can be safely mapped by its saved `sort_order` into the current service-setting definition,
+  - it is restored to that fixed hymn position instead of remaining `Other Hymn`.
+- Kept true extra hymns and real `Other Hymn` behavior intact where the row cannot be safely repaired into a standard slot.
+
+## Result
+
+- Affected services now retain their proper hymn use and position in `update-service`.
+- Services that already rendered correctly continue to use their existing slot mapping.
+- The fix uses the saved `slot_id` and `sort_order` together, as intended.
+
+## Verification
+
+- `php -l update-service.php` passes.
+- Live rendered hymn state was spot-checked against local DB-backed services including `110` and `118`.
+- Those services now populate standard hymn slots in the editor instead of collapsing into `Other Hymn` rows.
