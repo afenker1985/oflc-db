@@ -1003,6 +1003,42 @@ function oflc_update_resolve_selected_reading_set_id_for_detail(?array $observan
     return null;
 }
 
+function oflc_update_get_default_selected_reading_set_id(?array $observanceDetail, ?DateTimeImmutable $serviceDate): ?int
+{
+    $readingSets = array_values(array_filter(
+        oflc_update_get_reading_sets_to_show($observanceDetail),
+        static function (array $readingSet): bool {
+            return (int) ($readingSet['id'] ?? 0) > 0;
+        }
+    ));
+
+    if ($readingSets === []) {
+        return null;
+    }
+
+    if (count($readingSets) === 1) {
+        return (int) ($readingSets[0]['id'] ?? 0);
+    }
+
+    $desiredPattern = $serviceDate instanceof DateTimeImmutable && ((int) $serviceDate->format('Y') % 2 === 0)
+        ? 'even'
+        : 'odd';
+
+    foreach ($readingSets as $readingSet) {
+        if (strtolower(trim((string) ($readingSet['year_pattern'] ?? ''))) === $desiredPattern) {
+            return (int) ($readingSet['id'] ?? 0);
+        }
+    }
+
+    foreach ($readingSets as $readingSet) {
+        if (trim((string) ($readingSet['year_pattern'] ?? '')) === '') {
+            return (int) ($readingSet['id'] ?? 0);
+        }
+    }
+
+    return (int) ($readingSets[0]['id'] ?? 0);
+}
+
 function oflc_update_build_observance_reading_set_data(?array $observanceDetail): array
 {
     $readingSetData = [];
@@ -1087,6 +1123,58 @@ function oflc_update_render_new_reading_set_editor_html(array $drafts, string $s
     }
 
     return implode('', $chunks);
+}
+
+function oflc_update_build_existing_reading_editor_draft(?array $observanceDetail, ?int $selectedReadingSetId, array $drafts): array
+{
+    $draft = $drafts[1] ?? ['psalm' => '', 'old_testament' => '', 'epistle' => '', 'gospel' => ''];
+    $hasDraftContent = trim((string) ($draft['psalm'] ?? '')) !== ''
+        || trim((string) ($draft['old_testament'] ?? '')) !== ''
+        || trim((string) ($draft['epistle'] ?? '')) !== ''
+        || trim((string) ($draft['gospel'] ?? '')) !== '';
+
+    if ($hasDraftContent) {
+        return $draft;
+    }
+
+    foreach (oflc_update_build_observance_reading_set_data($observanceDetail) as $readingSet) {
+        if ($selectedReadingSetId !== null && (int) ($readingSet['id'] ?? 0) !== $selectedReadingSetId) {
+            continue;
+        }
+
+        return [
+            'psalm' => (string) ($readingSet['psalm'] ?? ''),
+            'old_testament' => (string) ($readingSet['old_testament'] ?? ''),
+            'epistle' => (string) ($readingSet['epistle'] ?? ''),
+            'gospel' => (string) ($readingSet['gospel'] ?? ''),
+        ];
+    }
+
+    return $draft;
+}
+
+function oflc_update_render_existing_reading_editor_html(?array $observanceDetail, ?int $selectedReadingSetId, array $drafts): string
+{
+    $draft = oflc_update_build_existing_reading_editor_draft($observanceDetail, $selectedReadingSetId, $drafts);
+
+    return
+        '<div class="service-card-reading-set update-service-reading-editor">' .
+            '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_1_psalm" value="' . htmlspecialchars((string) ($draft['psalm'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Psalm">' .
+            '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_1_old_testament" value="' . htmlspecialchars((string) ($draft['old_testament'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Old Testament">' .
+            '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_1_epistle" value="' . htmlspecialchars((string) ($draft['epistle'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Epistle">' .
+            '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_1_gospel" value="' . htmlspecialchars((string) ($draft['gospel'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Gospel">' .
+        '</div>';
+}
+
+function oflc_update_prepare_frontend_reading_drafts(array $drafts): array
+{
+    if ($drafts === []) {
+        return array_values(oflc_service_normalize_new_reading_set_drafts([]));
+    }
+
+    ksort($drafts);
+
+    return array_values($drafts);
 }
 
 function oflc_update_build_observance_catalog_payload(array $detailsById): array
@@ -2003,6 +2091,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     } elseif ($selectedReadingSetId !== null && oflc_update_resolve_selected_reading_set_id_for_detail($observanceDetail, $selectedReadingSetId) === null) {
         $errors[] = 'Selected reading set does not match the observance.';
     }
+    if ($selectedReadingSetId === null) {
+        $selectedReadingSetId = oflc_update_get_default_selected_reading_set_id($observanceDetail, $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null);
+        if ($selectedReadingSetId !== null) {
+            $submittedState['selected_reading_set_id'] = (string) $selectedReadingSetId;
+            $formStateByServiceId[$serviceId]['selected_reading_set_id'] = (string) $selectedReadingSetId;
+        }
+    }
 
     $hasDraftReadings = false;
     $draftOne = $submittedState['new_reading_sets'][1] ?? null;
@@ -2846,14 +2941,23 @@ include 'includes/header.php';
                         if ($selectedOptionDetail === null && trim((string) ($formState['observance_name'] ?? '')) !== '') {
                             $selectedOptionDetail = oflc_service_fetch_observance_detail_by_name($pdo, (string) $formState['observance_name']);
                         }
-                        $selectedReadingSetId = oflc_update_resolve_selected_reading_set_id_for_detail(
-                            $selectedOptionDetail,
-                            oflc_update_normalize_selected_reading_set_id($formState['selected_reading_set_id'] ?? '')
-                        );
                         $serviceCardColorClass = $selectedOptionDetail !== null
                             ? oflc_update_get_liturgical_color_text_class($selectedOptionDetail['observance']['liturgical_color'] ?? null)
                             : oflc_update_get_liturgical_color_text_class($displayService['liturgical_color'] ?? null);
                         $serviceDateObject = DateTimeImmutable::createFromFormat('Y-m-d', $formDate);
+                        $selectedReadingSetId = oflc_update_resolve_selected_reading_set_id_for_detail(
+                            $selectedOptionDetail,
+                            oflc_update_normalize_selected_reading_set_id($formState['selected_reading_set_id'] ?? '')
+                        );
+                        if ($selectedReadingSetId === null) {
+                            $selectedReadingSetId = oflc_update_get_default_selected_reading_set_id(
+                                $selectedOptionDetail,
+                                $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
+                            );
+                            if ($selectedReadingSetId !== null) {
+                                $formState['selected_reading_set_id'] = (string) $selectedReadingSetId;
+                            }
+                        }
                         $serviceDateDisplay = $serviceDateObject instanceof DateTimeImmutable
                             ? $serviceDateObject->format('l, F j')
                             : '&nbsp;';
@@ -2933,7 +3037,7 @@ include 'includes/header.php';
                                 action="update-service.php"
                                 data-selected-reading-set-id="<?php echo htmlspecialchars($selectedReadingSetId !== null ? (string) $selectedReadingSetId : '', ENT_QUOTES, 'UTF-8'); ?>"
                                 data-selected-new-reading-set="<?php echo htmlspecialchars((string) ($formState['selected_new_reading_set'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
-                                data-initial-reading-editor="<?php echo htmlspecialchars(json_encode($formState['new_reading_sets'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+                                data-initial-reading-editor="<?php echo htmlspecialchars(json_encode(oflc_update_prepare_frontend_reading_drafts($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([])), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-date-observance-suggestions="<?php echo htmlspecialchars(json_encode(array_values($dateObservanceSuggestions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-small-catechism-options="<?php echo htmlspecialchars(json_encode(array_values($smallCatechismOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-passion-reading-options="<?php echo htmlspecialchars(json_encode(array_values($passionReadingOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
@@ -3053,7 +3157,7 @@ include 'includes/header.php';
                                     </section>
 
                                     <section class="service-card-panel">
-                                        <div class="service-card-readings js-observance-readings"><?php echo $readingSupplementsHtml . (count($selectedOptionDetail['reading_sets'] ?? []) > 0 ? oflc_update_render_observance_readings_html($selectedOptionDetail, $selectedReadingSetId) : oflc_update_render_new_reading_set_editor_html($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]), (string) ($formState['selected_new_reading_set'] ?? ''))); ?></div>
+                                        <div class="service-card-readings js-observance-readings"><?php echo $readingSupplementsHtml . (count($selectedOptionDetail['reading_sets'] ?? []) > 0 ? oflc_update_render_observance_readings_html($selectedOptionDetail, $selectedReadingSetId) . oflc_update_render_existing_reading_editor_html($selectedOptionDetail, $selectedReadingSetId, $formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([])) : oflc_update_render_new_reading_set_editor_html($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]), (string) ($formState['selected_new_reading_set'] ?? ''))); ?></div>
                                     </section>
 
                                     <section class="service-card-panel">
@@ -3226,6 +3330,7 @@ include 'includes/header.php';
     function ensureExpandedRowBottomVisible(targetDetails, behavior) {
         var bottomPadding = 20;
         var topPadding = 12;
+        var scrollContainer = document.querySelector('body.update-service-page .content') || updateServiceList;
         var targetRect;
         var containerRect;
         var desiredScrollTop;
@@ -3234,16 +3339,16 @@ include 'includes/header.php';
             return;
         }
 
-        if (!updateServiceList) {
+        if (!scrollContainer) {
             return;
         }
 
         targetRect = targetDetails.getBoundingClientRect();
-        containerRect = updateServiceList.getBoundingClientRect();
+        containerRect = scrollContainer.getBoundingClientRect();
 
         if (targetRect.top < containerRect.top + topPadding) {
-            desiredScrollTop = updateServiceList.scrollTop + (targetRect.top - containerRect.top) - topPadding;
-            updateServiceList.scrollTo({
+            desiredScrollTop = scrollContainer.scrollTop + (targetRect.top - containerRect.top) - topPadding;
+            scrollContainer.scrollTo({
                 top: Math.max(0, desiredScrollTop),
                 behavior: behavior || 'smooth'
             });
@@ -3254,8 +3359,8 @@ include 'includes/header.php';
             return;
         }
 
-        desiredScrollTop = updateServiceList.scrollTop + (targetRect.bottom - containerRect.bottom) + bottomPadding;
-        updateServiceList.scrollTo({
+        desiredScrollTop = scrollContainer.scrollTop + (targetRect.bottom - containerRect.bottom) + bottomPadding;
+        scrollContainer.scrollTo({
             top: Math.max(0, desiredScrollTop),
             behavior: behavior || 'smooth'
         });
@@ -3357,8 +3462,28 @@ include 'includes/header.php';
         });
     }
 
+    function normalizeReadingDraftCollection(drafts) {
+        var normalizedDrafts = drafts;
+
+        if (Array.isArray(normalizedDrafts)) {
+            return normalizedDrafts.length > 0 ? normalizedDrafts : emptyReadingDrafts;
+        }
+
+        if (normalizedDrafts && typeof normalizedDrafts === 'object') {
+            normalizedDrafts = Object.keys(normalizedDrafts).sort(function (left, right) {
+                return parseInt(left, 10) - parseInt(right, 10);
+            }).map(function (key) {
+                return normalizedDrafts[key];
+            });
+
+            return normalizedDrafts.length > 0 ? normalizedDrafts : emptyReadingDrafts;
+        }
+
+        return emptyReadingDrafts;
+    }
+
     function cloneReadingDrafts(drafts) {
-        return Array.prototype.map.call(drafts || emptyReadingDrafts, function (draft, index) {
+        return Array.prototype.map.call(normalizeReadingDraftCollection(drafts), function (draft, index) {
             return {
                 index: draft && draft.index ? draft.index : index + 1,
                 set_name: draft && draft.set_name ? draft.set_name : '',
@@ -4676,6 +4801,7 @@ include 'includes/header.php';
 
         function renderNewReadingSetEditor() {
             var html = getReadingSupplementsHtml() + '<div class="update-service-reading-editor-note">No appointed readings are stored for this observance yet.</div>';
+            var normalizedDrafts = cloneReadingDrafts(readingDraftState);
 
             if (!readingsPane) {
                 return;
@@ -4686,7 +4812,7 @@ include 'includes/header.php';
             form.setAttribute('data-selected-reading-set-id', '');
             form.setAttribute('data-selected-new-reading-set', '');
 
-            Array.prototype.forEach.call(readingDraftState, function (draft, draftIndex) {
+            Array.prototype.forEach.call(normalizedDrafts, function (draft, draftIndex) {
                 var index = draftIndex + 1;
 
                 html +=
@@ -4701,6 +4827,7 @@ include 'includes/header.php';
             });
 
             readingsPane.innerHTML = html;
+            readingDraftState = normalizedDrafts;
 
             Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-new-reading-set-input'), function (input) {
                 input.addEventListener('input', captureReadingDraftState);

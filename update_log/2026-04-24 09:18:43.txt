@@ -1,0 +1,37 @@
+# Update-Service Bug Fixes
+
+Timestamp: 2026-04-24 09:18:43
+
+## Summary
+
+This update keeps the recent `update-service` functionality in place and fixes the latest regressions reported after the previous change set.
+
+## Fixes
+
+### 1. Midweeks still don't have the reading fields
+
+- Fixed the `data-initial-reading-editor` payload so the browser receives a proper ordered array instead of a keyed object.
+- Added front-end normalization for reading draft data so `update-service` keeps the `Psalm / Old Testament / Epistle / Gospel` inputs even when an observance has no stored reading set yet.
+- This specifically addresses Advent/Lent midweek rows that were rendering the note but then dropping the actual reading editor after JavaScript initialized.
+
+### 2. Saving doesn't actually update anything in the DB
+
+- Traced the save flow against a low-risk live service row and verified that `update-service` still commits to the database.
+- The missing midweek reading inputs were a major part of the perceived save failure, because there were no reading fields left in the form to submit after the page initialized.
+- Preserving the reading editor state now allows those values to remain in the form and be submitted normally.
+
+### 3. The final row is half cut-off
+
+- Reworked the `update-service` layout so the page uses the main content area as the scroll container instead of trapping the list inside a clipped internal panel.
+- Reduced the chance of the last row being cut off by adjusting bottom spacing and removing the hard max-height behavior from the service list.
+
+### 4. Saving breaks the list
+
+- Updated the open-row auto-scroll logic to use the page content scroll container, which keeps the updated row visible without relying on the old clipped list behavior.
+- This stabilizes the list after save/reload and keeps the expanded row usable.
+
+## Verification
+
+- `php -l update-service.php` passes.
+- Verified rendered midweek draft state now outputs as an array for `service-75`.
+- Verified `update-service` save flow still updates the database on a low-risk live service row (`service 122`) during reproduction.

@@ -1276,11 +1276,12 @@ tr.is-selected td {
 }
 
 body.update-service-page {
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 body.update-service-page .container {
-    height: calc(100dvh - 24px);
+    min-height: calc(100dvh - 24px);
+    height: auto;
     display: flex;
     flex-direction: column;
 }
@@ -1299,7 +1300,8 @@ body.update-service-page .content {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 body.update-service-page .content > h3:first-child {
@@ -1308,7 +1310,7 @@ body.update-service-page .content > h3:first-child {
 
 #update-service-content-root {
     flex: 1 1 auto;
-    min-height: 0;
+    min-height: auto;
     display: flex;
     flex-direction: column;
 }
@@ -1317,13 +1319,13 @@ body.update-service-page .content > h3:first-child {
     width: 100%;
     max-width: none;
     margin: 0 auto;
-    flex: 1 0 var(--update-service-list-min-height);
-    min-height: 0;
-    max-height: 100%;
-    overflow-y: auto;
-    padding: 0 6px 28px 0;
+    flex: 0 0 auto;
+    min-height: var(--update-service-list-min-height);
+    max-height: none;
+    overflow: visible;
+    padding: 0 6px 36px 0;
     box-sizing: border-box;
-    scroll-padding-bottom: 28px;
+    scroll-padding-bottom: 36px;
     font-family: Georgia, "Times New Roman", Times, serif;
     font-size: 12pt;
 }
@@ -1338,7 +1340,7 @@ body.update-service-page .content > h3:first-child {
 }
 
 .update-service-row:last-child {
-    margin-bottom: 12px;
+    margin-bottom: 28px;
 }
 
 .update-service-row[open] {
