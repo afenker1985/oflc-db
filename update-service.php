@@ -598,6 +598,32 @@ function oflc_update_insert_service_small_catechism_links(PDO $pdo, int $service
     }
 }
 
+function oflc_update_existing_reading_set(PDO $pdo, int $readingSetId, int $liturgicalCalendarId, array $draft): void
+{
+    if ($readingSetId <= 0 || $liturgicalCalendarId <= 0) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE reading_sets
+         SET psalm = :psalm,
+             old_testament = :old_testament,
+             epistle = :epistle,
+             gospel = :gospel
+         WHERE id = :id
+           AND liturgical_calendar_id = :liturgical_calendar_id
+           AND is_active = 1'
+    );
+    $stmt->execute([
+        ':id' => $readingSetId,
+        ':liturgical_calendar_id' => $liturgicalCalendarId,
+        ':psalm' => trim((string) ($draft['psalm'] ?? '')),
+        ':old_testament' => trim((string) ($draft['old_testament'] ?? '')),
+        ':epistle' => trim((string) ($draft['epistle'] ?? '')),
+        ':gospel' => trim((string) ($draft['gospel'] ?? '')),
+    ]);
+}
+
 function oflc_update_render_reading_supplements_html(
     bool $showSmallCatechism,
     array $selectedSmallCatechismLabels,
@@ -1336,7 +1362,6 @@ function oflc_update_find_definition_index(array $definitions, string $slotName,
 function oflc_update_build_hymn_editor_state(array $definitions, array $usageRows): array
 {
     $hymns = [];
-    $baseOrder = [];
     foreach ($definitions as $definition) {
         $definitionIndex = (int) ($definition['index'] ?? 0);
         if ($definitionIndex <= 0) {
@@ -1344,47 +1369,41 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
         }
 
         $hymns[$definitionIndex] = '';
-        $baseOrder[] = 'base:' . $definitionIndex;
     }
 
     $state = [
         'hymns' => $hymns,
         'stanzas' => [],
         'extra_rows' => [],
-        'order' => $baseOrder,
+        'order' => [],
         'next_extra_id' => 1,
     ];
-    $lastOrderKey = null;
+    $slotOccurrenceCounts = [];
 
     foreach ($usageRows as $row) {
         $slotName = trim((string) ($row['slot_name'] ?? ''));
-        $sortOrder = (int) ($row['sort_order'] ?? 1);
         $label = oflc_update_format_hymn_suggestion_label($row);
 
         if ($label === '') {
             continue;
         }
 
-        $targetIndex = null;
-
         if ($slotName === 'Processional Hymn') {
-            $targetIndex = oflc_update_find_definition_index($definitions, 'Opening Hymn', 1);
+            $slotName = 'Opening Hymn';
         } elseif ($slotName === 'Recessional Hymn') {
-            $targetIndex = oflc_update_find_definition_index($definitions, 'Closing Hymn', 1);
-        } else {
-            $targetIndex = oflc_update_find_definition_index($definitions, $slotName, $sortOrder);
-            if ($targetIndex === null) {
-                $targetIndex = oflc_update_find_definition_index($definitions, $slotName, 1);
-            }
-            if ($targetIndex === null && $sortOrder > 0 && isset($definitions[$sortOrder - 1]['index'])) {
-                $targetIndex = (int) $definitions[$sortOrder - 1]['index'];
-            }
+            $slotName = 'Closing Hymn';
+        }
+
+        $slotOccurrenceCounts[$slotName] = ($slotOccurrenceCounts[$slotName] ?? 0) + 1;
+        $targetIndex = oflc_update_find_definition_index($definitions, $slotName, $slotOccurrenceCounts[$slotName]);
+        if ($targetIndex === null) {
+            $targetIndex = oflc_update_find_definition_index($definitions, $slotName, 1);
         }
 
         if ($targetIndex !== null && isset($state['hymns'][$targetIndex]) && $state['hymns'][$targetIndex] === '') {
             $state['hymns'][$targetIndex] = $label;
             $state['stanzas'][$targetIndex] = oflc_update_normalize_stanza_text($row['stanzas'] ?? '');
-            $lastOrderKey = 'base:' . $targetIndex;
+            $state['order'][] = 'base:' . $targetIndex;
             continue;
         }
 
@@ -1396,14 +1415,14 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
             'slot_name' => $slotName === 'Distribution Hymn' ? 'Distribution Hymn' : 'Other Hymn',
             'stanzas' => oflc_update_normalize_stanza_text($row['stanzas'] ?? ''),
         ];
+        $state['order'][] = $extraKey;
+    }
 
-        $insertIndex = $lastOrderKey !== null ? array_search($lastOrderKey, $state['order'], true) : false;
-        if ($insertIndex === false) {
-            array_unshift($state['order'], $extraKey);
-        } else {
-            array_splice($state['order'], $insertIndex + 1, 0, [$extraKey]);
+    foreach (array_keys($state['hymns']) as $definitionIndex) {
+        $rowKey = 'base:' . $definitionIndex;
+        if (!in_array($rowKey, $state['order'], true)) {
+            $state['order'][] = $rowKey;
         }
-        $lastOrderKey = $extraKey;
     }
 
     return $state;
@@ -1986,6 +2005,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     }
 
     $hasDraftReadings = false;
+    $draftOne = $submittedState['new_reading_sets'][1] ?? null;
     foreach ($submittedState['new_reading_sets'] as $draft) {
         if (!empty($draft['has_content'])) {
             $hasDraftReadings = true;
@@ -1995,10 +2015,12 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
 
     $observanceHasReadings = $observanceDetail !== null && count($observanceDetail['reading_sets'] ?? []) > 0;
     if (!$observanceHasReadings && $hasDraftReadings) {
-        $draftOne = $submittedState['new_reading_sets'][1] ?? null;
         if (!is_array($draftOne) || empty($draftOne['has_content'])) {
             $errors[] = 'Enter readings for the new observance.';
         }
+    }
+    if ($observanceHasReadings && $hasDraftReadings && $selectedReadingSetId === null) {
+        $errors[] = 'Select a valid reading set before editing readings.';
     }
 
     $serviceSettingId = $submittedState['service_setting'];
@@ -2231,12 +2253,12 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     }
 
     $hymnEntries = [];
-    $orderedBaseRowKeys = array_values(array_filter($orderedHymnRowKeys, static function (string $rowKey): bool {
-        return strpos($rowKey, 'base:') === 0;
-    }));
-    $baseRowRankByKey = [];
-    foreach ($orderedBaseRowKeys as $baseRowRank => $baseRowKey) {
-        $baseRowRankByKey[$baseRowKey] = $baseRowRank;
+    $definitionsByIndex = [];
+    foreach ($definitions as $definition) {
+        $definitionIndex = (int) ($definition['index'] ?? 0);
+        if ($definitionIndex > 0) {
+            $definitionsByIndex[$definitionIndex] = $definition;
+        }
     }
 
     foreach ($orderedHymnRowKeys as $displayPosition => $rowKey) {
@@ -2263,8 +2285,8 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
 
         $slotName = trim((string) ($row['slot_name'] ?? ''));
         if (strpos($rowKey, 'base:') === 0) {
-            $baseRank = $baseRowRankByKey[$rowKey] ?? null;
-            $definitionForPosition = $baseRank !== null ? ($definitions[$baseRank] ?? null) : null;
+            $definitionIndex = (int) substr($rowKey, 5);
+            $definitionForPosition = $definitionsByIndex[$definitionIndex] ?? null;
             if (is_array($definitionForPosition)) {
                 $slotName = trim((string) ($definitionForPosition['slot_name'] ?? $slotName));
             }
@@ -2312,6 +2334,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
                         (int) ($persistedObservanceDetail['observance']['id'] ?? 0)
                     ) ?? $persistedObservanceDetail;
                 }
+            } elseif ($hasDraftReadings && is_array($draftOne) && $selectedReadingSetId !== null) {
+                oflc_update_existing_reading_set(
+                    $pdo,
+                    $selectedReadingSetId,
+                    (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
+                    $draftOne
+                );
             }
 
             $persistedSelectedReadingSetId = $selectedReadingSetId;
@@ -4581,6 +4610,55 @@ include 'includes/header.php';
             });
         }
 
+        function hasReadingDraftContent(draft) {
+            return !!(draft && (
+                String(draft.psalm || '').trim() !== '' ||
+                String(draft.old_testament || '').trim() !== '' ||
+                String(draft.epistle || '').trim() !== '' ||
+                String(draft.gospel || '').trim() !== ''
+            ));
+        }
+
+        function buildReadingEditorFieldsHtml(draft, index) {
+            return '' +
+                '<div class="service-card-reading-set update-service-reading-editor">' +
+                    '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="psalm" name="new_reading_set_' + index + '_psalm" value="' + escapeHtml((draft && draft.psalm) || '') + '" placeholder="Psalm">' +
+                    '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="old_testament" name="new_reading_set_' + index + '_old_testament" value="' + escapeHtml((draft && draft.old_testament) || '') + '" placeholder="Old Testament">' +
+                    '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="epistle" name="new_reading_set_' + index + '_epistle" value="' + escapeHtml((draft && draft.epistle) || '') + '" placeholder="Epistle">' +
+                    '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="gospel" name="new_reading_set_' + index + '_gospel" value="' + escapeHtml((draft && draft.gospel) || '') + '" placeholder="Gospel">' +
+                '</div>';
+        }
+
+        function getReadingEditorDraft(readingSets) {
+            var draft = readingDraftState[0] || { index: 1, psalm: '', old_testament: '', epistle: '', gospel: '' };
+            var selectedReadingSet = null;
+
+            if (hasReadingDraftContent(draft)) {
+                return draft;
+            }
+
+            Array.prototype.some.call(readingSets || [], function (readingSet) {
+                if (String(readingSet && readingSet.id ? readingSet.id : '') === String(selectedReadingSetId || '')) {
+                    selectedReadingSet = readingSet;
+                    return true;
+                }
+
+                return false;
+            });
+
+            if (!selectedReadingSet && readingSets && readingSets.length > 0) {
+                selectedReadingSet = readingSets[0];
+            }
+
+            return {
+                index: draft.index || 1,
+                psalm: selectedReadingSet && selectedReadingSet.psalm ? selectedReadingSet.psalm : '',
+                old_testament: selectedReadingSet && selectedReadingSet.old_testament ? selectedReadingSet.old_testament : '',
+                epistle: selectedReadingSet && selectedReadingSet.epistle ? selectedReadingSet.epistle : '',
+                gospel: selectedReadingSet && selectedReadingSet.gospel ? selectedReadingSet.gospel : ''
+            };
+        }
+
         function rerenderCurrentReadingsPane() {
             var detail = findObservanceDetailByName(observanceNameInput ? observanceNameInput.value : '');
 
@@ -4649,6 +4727,7 @@ include 'includes/header.php';
             var html = getReadingSupplementsHtml();
             var hasSelectedReadingSet = false;
             var hasRenderedReadingSet = false;
+            var readingEditorDraft;
 
             if (!readingsPane) {
                 return;
@@ -4696,11 +4775,26 @@ include 'includes/header.php';
 
             selectedNewReadingSet = '';
             form.setAttribute('data-selected-new-reading-set', '');
+            readingEditorDraft = getReadingEditorDraft(readingSets);
+            html += buildReadingEditorFieldsHtml(readingEditorDraft, parseInt(readingEditorDraft.index || '1', 10) || 1);
 
             readingsPane.innerHTML = html;
+            readingDraftState[0] = {
+                index: parseInt(readingEditorDraft.index || '1', 10) || 1,
+                set_name: (readingDraftState[0] && readingDraftState[0].set_name) || '',
+                year_pattern: (readingDraftState[0] && readingDraftState[0].year_pattern) || '',
+                psalm: readingEditorDraft.psalm || '',
+                old_testament: readingEditorDraft.old_testament || '',
+                epistle: readingEditorDraft.epistle || '',
+                gospel: readingEditorDraft.gospel || ''
+            };
             bindReadingSelectionBehavior(readingsPane, function (value) {
                 selectedReadingSetId = value || '';
                 form.setAttribute('data-selected-reading-set-id', selectedReadingSetId);
+                renderReadingsPane(readingSets || []);
+            });
+            Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-new-reading-set-input'), function (input) {
+                input.addEventListener('input', captureReadingDraftState);
             });
             bindSupplementalReadingControls();
         }

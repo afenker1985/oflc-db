@@ -935,6 +935,11 @@ if (!$oflcScheduleEmbedded) {
         return document.getElementById('schedule-filter-form');
     }
 
+    function getCleanScheduleUrl() {
+        var form = getForm();
+        return form ? (form.getAttribute('action') || 'schedule.php') : 'schedule.php';
+    }
+
     function buildUrlFromForm(form) {
         var params = new URLSearchParams(new FormData(form));
         var url = form.getAttribute('action') || 'schedule.php';
@@ -955,7 +960,7 @@ if (!$oflcScheduleEmbedded) {
         }
 
         currentRoot.replaceWith(nextRoot);
-        window.history.replaceState({}, '', url);
+        window.history.replaceState({}, '', getCleanScheduleUrl());
         bindScheduleFilters();
     }
 
@@ -1277,6 +1282,10 @@ if (!$oflcScheduleEmbedded) {
     }
 
     bindScheduleFilters();
+
+    if (window.location.search) {
+        window.history.replaceState({}, '', getCleanScheduleUrl());
+    }
 }());
 </script>
 <?php endif; ?>

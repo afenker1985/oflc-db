@@ -1,0 +1,17 @@
+# Update Log
+
+- Timestamp: 2026-04-24 08:56:28
+
+## Regression fixes
+
+1. Fixed hymn reordering saves in `update-service` by keeping base hymn rows tied to their actual hymn slot definitions while still saving their moved display order.
+2. Restored scrolling on `update-service` by making the new content wrapper participate in the page flex layout again.
+3. Added Psalm, Old Testament, Epistle, and Gospel input fields back to the `add-service` and `update-service` reading panes even when an observance already has stored reading sets, and wired those edits to the selected reading set.
+4. Cleaned the `schedule.php` URL after load and after AJAX filter changes so the page state stays visible without leaving query parameters in the address bar.
+
+## Files updated
+
+- `add-service.php`
+- `update-service.php`
+- `schedule.php`
+- `css/services.css`
