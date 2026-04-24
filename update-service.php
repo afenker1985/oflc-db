@@ -599,6 +599,104 @@ function oflc_update_insert_service_small_catechism_links(PDO $pdo, int $service
     }
 }
 
+function oflc_update_service_passion_reading_table_exists(PDO $pdo): bool
+{
+    static $exists = null;
+
+    if ($exists !== null) {
+        return $exists;
+    }
+
+    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
+    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
+
+    return $exists;
+}
+
+function oflc_update_ensure_service_passion_reading_table(PDO $pdo): void
+{
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS service_passion_reading_db (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            service_id INT NOT NULL,
+            passion_reading_id INT NOT NULL,
+            sort_order INT NOT NULL,
+            created_at DATE NOT NULL,
+            last_updated DATE NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            INDEX idx_service_passion_reading_active_service (is_active, service_id)
+        )'
+    );
+}
+
+function oflc_update_fetch_passion_reading_ids_by_service(PDO $pdo, array $serviceIds): array
+{
+    $serviceIds = array_values(array_filter(array_map('intval', $serviceIds), static function (int $serviceId): bool {
+        return $serviceId > 0;
+    }));
+    if ($serviceIds === [] || !oflc_update_service_passion_reading_table_exists($pdo)) {
+        return [];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT service_id, passion_reading_id
+         FROM service_passion_reading_db
+         WHERE is_active = 1
+           AND service_id IN (' . $placeholders . ')
+         ORDER BY service_id ASC, sort_order ASC, id ASC'
+    );
+    $stmt->execute($serviceIds);
+
+    $idsByService = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $serviceId = (int) ($row['service_id'] ?? 0);
+        $passionReadingId = (int) ($row['passion_reading_id'] ?? 0);
+        if ($serviceId > 0 && $passionReadingId > 0) {
+            $idsByService[$serviceId][] = $passionReadingId;
+        }
+    }
+
+    return $idsByService;
+}
+
+function oflc_update_insert_service_passion_reading_links(PDO $pdo, int $serviceId, array $passionReadingIds, string $today): void
+{
+    if ($serviceId <= 0 || $passionReadingIds === []) {
+        return;
+    }
+
+    oflc_update_ensure_service_passion_reading_table($pdo);
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO service_passion_reading_db (
+            service_id,
+            passion_reading_id,
+            sort_order,
+            created_at,
+            last_updated,
+            is_active
+         ) VALUES (
+            :service_id,
+            :passion_reading_id,
+            :sort_order,
+            :created_at,
+            :last_updated,
+            1
+         )'
+    );
+
+    foreach (array_values($passionReadingIds) as $index => $passionReadingId) {
+        $stmt->execute([
+            ':service_id' => $serviceId,
+            ':passion_reading_id' => (int) $passionReadingId,
+            ':sort_order' => $index + 1,
+            ':created_at' => $today,
+            ':last_updated' => $today,
+        ]);
+    }
+}
+
 function oflc_update_existing_reading_set(PDO $pdo, int $readingSetId, int $liturgicalCalendarId, array $draft): void
 {
     if ($readingSetId <= 0 || $liturgicalCalendarId <= 0) {
@@ -1114,8 +1212,6 @@ function oflc_update_render_new_reading_set_editor_html(array $drafts, string $s
 
         $chunks[] =
             '<div class="service-card-reading-set update-service-reading-editor">' .
-                '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_' . $index . '_set_name" value="' . htmlspecialchars((string) ($draft['set_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Set Name (optional)">' .
-                '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_' . $index . '_year_pattern" value="' . htmlspecialchars((string) ($draft['year_pattern'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Year Pattern (optional)">' .
                 '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_' . $index . '_psalm" value="' . htmlspecialchars((string) ($draft['psalm'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Psalm">' .
                 '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_' . $index . '_old_testament" value="' . htmlspecialchars((string) ($draft['old_testament'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Old Testament">' .
                 '<input type="text" class="service-card-text update-service-reading-input" name="new_reading_set_' . $index . '_epistle" value="' . htmlspecialchars((string) ($draft['epistle'] ?? ''), ENT_QUOTES, 'UTF-8') . '" placeholder="Epistle">' .
@@ -1570,6 +1666,7 @@ function oflc_update_build_form_state_from_service(
         'thursday_preacher' => '',
         'selected_small_catechism_labels' => array_values($smallCatechismLabels),
         'selected_passion_reading_id' => trim((string) ($service['passion_reading_id'] ?? '')),
+        'selected_passion_reading_ids' => [],
         'new_reading_sets' => oflc_service_normalize_new_reading_set_drafts([]),
         'selected_new_reading_set' => '',
         'selected_hymns' => $hymnState['hymns'],
@@ -1603,6 +1700,9 @@ function oflc_update_merge_form_state(array $baseState, array $overrideState): a
 
     if (isset($overrideState['selected_small_catechism_labels']) && is_array($overrideState['selected_small_catechism_labels'])) {
         $baseState['selected_small_catechism_labels'] = array_values($overrideState['selected_small_catechism_labels']);
+    }
+    if (isset($overrideState['selected_passion_reading_ids']) && is_array($overrideState['selected_passion_reading_ids'])) {
+        $baseState['selected_passion_reading_ids'] = array_values($overrideState['selected_passion_reading_ids']);
     }
 
     if (isset($overrideState['new_reading_sets']) && is_array($overrideState['new_reading_sets'])) {
@@ -2050,6 +2150,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
         'selected_new_reading_set' => oflc_update_request_value($_POST, 'selected_new_reading_set'),
         'selected_small_catechism_labels' => oflc_update_request_values($_POST, 'small_catechism_labels'),
         'selected_passion_reading_id' => oflc_update_request_value($_POST, 'passion_reading_id'),
+        'selected_passion_reading_ids' => oflc_update_request_values($_POST, 'passion_reading_ids'),
         'new_reading_sets' => oflc_service_normalize_new_reading_set_drafts($_POST),
         'preacher' => oflc_update_request_value($_POST, 'preacher'),
         'thursday_preacher' => oflc_update_request_value($_POST, 'thursday_preacher'),
@@ -2066,6 +2167,10 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     }
 
     $formStateByServiceId[$serviceId] = $submittedState;
+    if ($submittedState['selected_passion_reading_ids'] === [] && $submittedState['selected_passion_reading_id'] !== '') {
+        $submittedState['selected_passion_reading_ids'][] = $submittedState['selected_passion_reading_id'];
+        $formStateByServiceId[$serviceId]['selected_passion_reading_ids'] = $submittedState['selected_passion_reading_ids'];
+    }
 
     $errors = [];
 
@@ -2229,14 +2334,19 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
     })));
     $smallCatechismId = $smallCatechismIds !== [] ? $smallCatechismIds[0] : null;
 
-    $passionReadingId = null;
-    if ($submittedState['selected_passion_reading_id'] !== '') {
-        if (!ctype_digit($submittedState['selected_passion_reading_id']) || !isset($passionReadingById[(int) $submittedState['selected_passion_reading_id']])) {
+    $passionReadingIds = [];
+    foreach ($submittedState['selected_passion_reading_ids'] as $selectedPassionReadingValue) {
+        if (!ctype_digit($selectedPassionReadingValue) || !isset($passionReadingById[(int) $selectedPassionReadingValue])) {
             $errors[] = 'Select a valid passion reading.';
-        } else {
-            $passionReadingId = (int) $submittedState['selected_passion_reading_id'];
+            break;
         }
+
+        $passionReadingIds[] = (int) $selectedPassionReadingValue;
     }
+    $passionReadingIds = array_values(array_unique(array_filter($passionReadingIds, static function (int $id): bool {
+        return $id > 0;
+    })));
+    $passionReadingId = $passionReadingIds !== [] ? $passionReadingIds[0] : null;
 
     $submittedObservanceName = trim((string) ($observanceDetail['observance']['name'] ?? $observanceName));
     $isAdventMidweek = oflc_update_is_advent_midweek_observance_name($submittedObservanceName);
@@ -2246,8 +2356,10 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
         $smallCatechismId = null;
         $smallCatechismIds = [];
         $passionReadingId = null;
+        $passionReadingIds = [];
     } elseif (!$isLentMidweek) {
         $passionReadingId = null;
+        $passionReadingIds = [];
     }
 
     $pairThursdayId = isset($_POST['pair_thursday_id']) ? (int) $_POST['pair_thursday_id'] : 0;
@@ -2504,6 +2616,16 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
                  WHERE service_id = :service_id
                    AND is_active = 1'
             );
+            $deactivatePassionReadingStmt = null;
+            if (oflc_update_service_passion_reading_table_exists($pdo)) {
+                $deactivatePassionReadingStmt = $pdo->prepare(
+                    'UPDATE service_passion_reading_db
+                     SET is_active = 0,
+                         last_updated = :last_updated
+                     WHERE service_id = :service_id
+                       AND is_active = 1'
+                );
+            }
 
             $insertUsageStmt = $pdo->prepare(
                 'INSERT INTO hymn_usage_db (
@@ -2581,7 +2703,14 @@ if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
                     ':last_updated' => $today,
                     ':service_id' => $targetRowId,
                 ]);
+                if ($deactivatePassionReadingStmt !== null) {
+                    $deactivatePassionReadingStmt->execute([
+                        ':last_updated' => $today,
+                        ':service_id' => $targetRowId,
+                    ]);
+                }
                 oflc_update_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $today);
+                oflc_update_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $today);
 
                 foreach ($hymnEntries as $entry) {
                     $insertUsageStmt->execute([
@@ -2659,6 +2788,7 @@ $serviceIds = array_map(static function (array $row): int {
 }, $services);
 
 $smallCatechismLabelsByService = oflc_update_fetch_small_catechism_labels_by_service($pdo, $serviceIds);
+$passionReadingIdsByService = oflc_update_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
 
 $hymnRowsByService = [];
 if ($serviceIds !== []) {
@@ -3026,13 +3156,9 @@ include 'includes/header.php';
                         $showSmallCatechismDropdown = oflc_update_is_advent_midweek_observance_name($activeObservanceName) || oflc_update_is_lent_midweek_observance_name($activeObservanceName);
                         $showPassionReadingDropdown = oflc_update_is_lent_midweek_observance_name($activeObservanceName);
                         $filteredPassionReadingOptions = oflc_update_filter_passion_reading_options_for_service_date($passionReadingOptions, $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null);
-                        $readingSupplementsHtml = oflc_update_render_reading_supplements_html(
-                            $showSmallCatechismDropdown,
-                            $formState['selected_small_catechism_labels'] ?? [],
-                            $showPassionReadingDropdown,
-                            $filteredPassionReadingOptions,
-                            (string) ($formState['selected_passion_reading_id'] ?? '')
-                        );
+                        if (($formState['selected_passion_reading_ids'] ?? []) === [] && ($displayService['id'] ?? 0) > 0) {
+                            $formState['selected_passion_reading_ids'] = array_map('strval', $passionReadingIdsByService[(int) ($displayService['id'] ?? 0)] ?? []);
+                        }
                         $searchLabel = oflc_update_format_search_label($displayService, $linkedServices);
                         if ($serviceId > 0 && !isset($searchPayload['forms_by_id'][$serviceId])) {
                             $searchPayload['forms_by_id'][$serviceId] = [
@@ -3073,6 +3199,7 @@ include 'includes/header.php';
                                 data-small-catechism-options="<?php echo htmlspecialchars(json_encode(array_values($smallCatechismOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-passion-reading-options="<?php echo htmlspecialchars(json_encode(array_values($passionReadingOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-selected-small-catechism-labels="<?php echo htmlspecialchars(json_encode(array_values($formState['selected_small_catechism_labels'] ?? []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+                                data-selected-passion-reading-ids="<?php echo htmlspecialchars(json_encode(array_values($formState['selected_passion_reading_ids'] ?? []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-selected-passion-reading-id="<?php echo htmlspecialchars((string) ($formState['selected_passion_reading_id'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-service-setting-catalog="<?php echo htmlspecialchars(json_encode($serviceSettingCatalogPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-initial-hymn-state="<?php echo htmlspecialchars(json_encode([
@@ -3612,7 +3739,7 @@ include 'includes/header.php';
         var selectedReadingSetId = form.getAttribute('data-selected-reading-set-id') || '';
         var selectedNewReadingSet = form.getAttribute('data-selected-new-reading-set') || '';
         var selectedSmallCatechismLabels = [];
-        var selectedPassionReadingId = form.getAttribute('data-selected-passion-reading-id') || '';
+        var selectedPassionReadingIds = [];
         var readingDraftState = cloneReadingDrafts([]);
         var hymnState = {
             hymns: {},
@@ -3656,6 +3783,14 @@ include 'includes/header.php';
             selectedSmallCatechismLabels = JSON.parse(form.getAttribute('data-selected-small-catechism-labels') || '[]');
         } catch (error) {
             selectedSmallCatechismLabels = [];
+        }
+        try {
+            selectedPassionReadingIds = JSON.parse(form.getAttribute('data-selected-passion-reading-ids') || '[]');
+        } catch (error) {
+            selectedPassionReadingIds = [];
+        }
+        if ((!Array.isArray(selectedPassionReadingIds) || selectedPassionReadingIds.length === 0) && form.getAttribute('data-selected-passion-reading-id')) {
+            selectedPassionReadingIds = [form.getAttribute('data-selected-passion-reading-id')];
         }
 
         try {
@@ -3823,21 +3958,32 @@ include 'includes/header.php';
         }
 
         function buildPassionReadingFieldHtml() {
-            return '<select class="service-card-select update-service-reading-input js-passion-reading-select" name="passion_reading_id">' +
-                buildOptionHtml(getFilteredPassionReadingOptions(), selectedPassionReadingId, 'Select passion reading') +
-                '</select>';
+            if (!Array.isArray(selectedPassionReadingIds) || selectedPassionReadingIds.length === 0) {
+                selectedPassionReadingIds = [''];
+            }
+
+            return Array.prototype.map.call(selectedPassionReadingIds, function (selectedValue, index) {
+                return '<div class="service-card-inline-field-row">' +
+                    '<select class="service-card-select update-service-reading-input js-passion-reading-select" name="passion_reading_ids[]">' +
+                        buildOptionHtml(getFilteredPassionReadingOptions(), selectedValue, 'Select passion reading') +
+                    '</select>' +
+                    (index === selectedPassionReadingIds.length - 1
+                        ? '<button type="button" class="service-card-add-inline-button js-passion-reading-add">+</button>'
+                        : '') +
+                '</div>';
+            }).join('');
         }
 
         function getReadingSupplementsHtml() {
             var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
             var html = '';
 
-            if (isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName)) {
-                html += buildSmallCatechismFieldsHtml();
-            }
-
             if (isLentMidweekObservanceName(activeObservanceName)) {
                 html += buildPassionReadingFieldHtml();
+            }
+
+            if (isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName)) {
+                html += buildSmallCatechismFieldsHtml();
             }
 
             return html;
@@ -3857,9 +4003,15 @@ include 'includes/header.php';
                 });
             });
 
-            Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-select'), function (input) {
+            Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-select'), function (input, index) {
                 input.addEventListener('change', function () {
-                    selectedPassionReadingId = input.value;
+                    selectedPassionReadingIds[index] = input.value;
+                });
+            });
+            Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-add'), function (button) {
+                button.addEventListener('click', function () {
+                    selectedPassionReadingIds.push('');
+                    rerenderCurrentReadingsPane();
                 });
             });
         }
@@ -4832,8 +4984,10 @@ include 'includes/header.php';
         }
 
         function renderNewReadingSetEditor() {
-            var html = getReadingSupplementsHtml() + '<div class="update-service-reading-editor-note">No appointed readings are stored for this observance yet.</div>';
+            var html = '<div class="update-service-reading-editor-note">No appointed readings are stored for this observance yet.</div>';
             var normalizedDrafts = cloneReadingDrafts(readingDraftState);
+            var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
+            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName);
 
             if (!readingsPane) {
                 return;
@@ -4843,20 +4997,25 @@ include 'includes/header.php';
             selectedNewReadingSet = '';
             form.setAttribute('data-selected-reading-set-id', '');
             form.setAttribute('data-selected-new-reading-set', '');
+            if (!allowReadingEditor) {
+                readingsPane.innerHTML = '&nbsp;';
+                bindSupplementalReadingControls();
+                return;
+            }
 
             Array.prototype.forEach.call(normalizedDrafts, function (draft, draftIndex) {
                 var index = draftIndex + 1;
 
                 html +=
                     '<div class="service-card-reading-set update-service-reading-editor">' +
-                        '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="set_name" name="new_reading_set_' + index + '_set_name" value="' + escapeHtml(draft.set_name || '') + '" placeholder="Set Name (optional)">' +
-                        '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="year_pattern" name="new_reading_set_' + index + '_year_pattern" value="' + escapeHtml(draft.year_pattern || '') + '" placeholder="Year Pattern (optional)">' +
                         '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="psalm" name="new_reading_set_' + index + '_psalm" value="' + escapeHtml(draft.psalm || '') + '" placeholder="Psalm">' +
                         '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="old_testament" name="new_reading_set_' + index + '_old_testament" value="' + escapeHtml(draft.old_testament || '') + '" placeholder="Old Testament">' +
                         '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="epistle" name="new_reading_set_' + index + '_epistle" value="' + escapeHtml(draft.epistle || '') + '" placeholder="Epistle">' +
                         '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="gospel" name="new_reading_set_' + index + '_gospel" value="' + escapeHtml(draft.gospel || '') + '" placeholder="Gospel">' +
                     '</div>';
             });
+
+            html += getReadingSupplementsHtml();
 
             readingsPane.innerHTML = html;
             readingDraftState = normalizedDrafts;
@@ -4876,17 +5035,18 @@ include 'includes/header.php';
             selectedNewReadingSet = '';
             form.setAttribute('data-selected-reading-set-id', '');
             form.setAttribute('data-selected-new-reading-set', '');
-            readingsPane.innerHTML = String(observanceNameInput && observanceNameInput.value ? observanceNameInput.value : '').trim() === ''
-                ? '&nbsp;'
-                : getReadingSupplementsHtml();
+            selectedPassionReadingIds = [];
+            readingsPane.innerHTML = '&nbsp;';
             bindSupplementalReadingControls();
         }
 
         function renderReadingsPane(readingSets) {
-            var html = getReadingSupplementsHtml();
+            var html = '';
             var hasSelectedReadingSet = false;
             var hasRenderedReadingSet = false;
             var readingEditorDraft;
+            var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
+            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName);
 
             if (!readingsPane) {
                 return;
@@ -4934,19 +5094,22 @@ include 'includes/header.php';
 
             selectedNewReadingSet = '';
             form.setAttribute('data-selected-new-reading-set', '');
-            readingEditorDraft = getReadingEditorDraft(readingSets);
-            html += buildReadingEditorFieldsHtml(readingEditorDraft, parseInt(readingEditorDraft.index || '1', 10) || 1);
+            if (allowReadingEditor) {
+                readingEditorDraft = getReadingEditorDraft(readingSets);
+                html += buildReadingEditorFieldsHtml(readingEditorDraft, parseInt(readingEditorDraft.index || '1', 10) || 1);
+                html += getReadingSupplementsHtml();
+            }
 
             readingsPane.innerHTML = html;
-            readingDraftState[0] = {
-                index: parseInt(readingEditorDraft.index || '1', 10) || 1,
-                set_name: (readingDraftState[0] && readingDraftState[0].set_name) || '',
-                year_pattern: (readingDraftState[0] && readingDraftState[0].year_pattern) || '',
-                psalm: readingEditorDraft.psalm || '',
-                old_testament: readingEditorDraft.old_testament || '',
-                epistle: readingEditorDraft.epistle || '',
-                gospel: readingEditorDraft.gospel || ''
-            };
+            if (allowReadingEditor) {
+                readingDraftState[0] = {
+                    index: parseInt(readingEditorDraft.index || '1', 10) || 1,
+                    psalm: readingEditorDraft.psalm || '',
+                    old_testament: readingEditorDraft.old_testament || '',
+                    epistle: readingEditorDraft.epistle || '',
+                    gospel: readingEditorDraft.gospel || ''
+                };
+            }
             bindReadingSelectionBehavior(readingsPane, function (value) {
                 selectedReadingSetId = value || '';
                 form.setAttribute('data-selected-reading-set-id', selectedReadingSetId);

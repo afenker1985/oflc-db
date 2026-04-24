@@ -1,0 +1,54 @@
+# Midweek Reading and Passion UI Fixes
+
+Timestamp: 2026-04-24 10:26:32
+
+## Summary
+
+This update adjusts the reading/passion behavior for service editing and schedule display so midweek services behave differently from regular weeks, and Lent midweeks can carry more than one Passion reading.
+
+## Changes
+
+### 1. Reading fields only show for midweek services
+
+- Updated the reading editor behavior so editable `Psalm / Old Testament / Epistle / Gospel` fields are only shown for Advent and Lent midweek services.
+- Non-midweek services now stay on reading-set selection behavior instead of showing editable reading fields.
+
+### 2. Non-midweeks show reading-set toggles only
+
+- For non-midweek services, the reading area now stays focused on the stored reading-set toggles and does not expose the midweek reading editor.
+
+### 3. Reading fields come before Small Catechism and Passion rows
+
+- Reordered the midweek reading area so editable reading-reference fields render before supplemental midweek selections.
+
+### 4. Removed `Set Name` and `Year Pattern` from update-service
+
+- Removed the extra `Set Name` and `Year Pattern` inputs from the `update-service` new-reading editor UI.
+
+### 5. Passion reading comes before Small Catechism on Lent midweeks
+
+- Reordered Lent midweek supplemental fields so Passion readings render before Small Catechism.
+
+### 6. Schedule only shows the Passion reference
+
+- Updated `schedule.php` so Passion readings display in reference form like:
+  - `Mk 14:32–72`
+- Removed the old `Passion:` / section-title display format from the schedule output.
+
+### 7. Added a `+` button for a second Passion reading
+
+- Added repeatable Passion-reading selectors in the service editing UI.
+- Added support for storing multiple Passion readings through a new `service_passion_reading_db` link-table path created on demand by the app when needed.
+- Schedule rendering now reads multiple Passion readings and displays each one once.
+
+## Files Updated
+
+- `add-service.php`
+- `update-service.php`
+- `schedule.php`
+
+## Verification
+
+- `php -l add-service.php` passes.
+- `php -l update-service.php` passes.
+- `php -l schedule.php` passes.

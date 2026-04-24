@@ -1140,6 +1140,73 @@ function oflc_insert_service_small_catechism_links(PDO $pdo, int $serviceId, arr
     }
 }
 
+function oflc_service_passion_reading_table_exists(PDO $pdo): bool
+{
+    static $exists = null;
+
+    if ($exists !== null) {
+        return $exists;
+    }
+
+    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
+    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
+
+    return $exists;
+}
+
+function oflc_ensure_service_passion_reading_table(PDO $pdo): void
+{
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS service_passion_reading_db (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            service_id INT NOT NULL,
+            passion_reading_id INT NOT NULL,
+            sort_order INT NOT NULL,
+            created_at DATE NOT NULL,
+            last_updated DATE NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            INDEX idx_service_passion_reading_active_service (is_active, service_id)
+        )'
+    );
+}
+
+function oflc_insert_service_passion_reading_links(PDO $pdo, int $serviceId, array $passionReadingIds, string $today): void
+{
+    if ($serviceId <= 0 || $passionReadingIds === []) {
+        return;
+    }
+
+    oflc_ensure_service_passion_reading_table($pdo);
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO service_passion_reading_db (
+            service_id,
+            passion_reading_id,
+            sort_order,
+            created_at,
+            last_updated,
+            is_active
+         ) VALUES (
+            :service_id,
+            :passion_reading_id,
+            :sort_order,
+            :created_at,
+            :last_updated,
+            1
+         )'
+    );
+
+    foreach (array_values($passionReadingIds) as $index => $passionReadingId) {
+        $stmt->execute([
+            ':service_id' => $serviceId,
+            ':passion_reading_id' => (int) $passionReadingId,
+            ':sort_order' => $index + 1,
+            ':created_at' => $today,
+            ':last_updated' => $today,
+        ]);
+    }
+}
+
 function oflc_update_existing_reading_set(PDO $pdo, int $readingSetId, int $liturgicalCalendarId, array $draft): void
 {
     if ($readingSetId <= 0 || $liturgicalCalendarId <= 0) {
@@ -1220,6 +1287,7 @@ $selected_new_reading_set = oflc_request_value($request_data, 'selected_new_read
 $selected_new_observance_color = oflc_request_value($request_data, 'new_observance_color');
 $selected_small_catechism_id = oflc_request_value($request_data, 'small_catechism_id');
 $selected_passion_reading_id = oflc_request_value($request_data, 'passion_reading_id');
+$selected_passion_reading_ids = oflc_request_values($request_data, 'passion_reading_ids');
 $selected_small_catechism_labels = oflc_request_values($request_data, 'small_catechism_labels');
 $new_reading_sets = oflc_service_normalize_new_reading_set_drafts($request_data);
 $extra_hymn_rows = oflc_normalize_extra_hymn_rows($request_data);
@@ -1487,6 +1555,9 @@ if ($selected_small_catechism_labels === [] && $selected_small_catechism_id !== 
 if ($selected_small_catechism_labels === []) {
     $selected_small_catechism_labels[] = '';
 }
+if ($selected_passion_reading_ids === [] && $selected_passion_reading_id !== '') {
+    $selected_passion_reading_ids[] = $selected_passion_reading_id;
+}
 
 $selected_service_setting_detail = $selected_service_setting !== '' && isset($service_settings_by_id[$selected_service_setting])
     ? $service_settings_by_id[$selected_service_setting]
@@ -1664,14 +1735,19 @@ if ($is_add_submit && $date_error === null) {
     })));
     $small_catechism_id = $small_catechism_ids !== [] ? $small_catechism_ids[0] : null;
 
-    $passion_reading_id = null;
-    if ($selected_passion_reading_id !== '') {
-        if (!ctype_digit($selected_passion_reading_id) || !isset($passion_reading_by_id[(int) $selected_passion_reading_id])) {
+    $passion_reading_ids = [];
+    foreach ($selected_passion_reading_ids as $selected_passion_reading_value) {
+        if (!ctype_digit($selected_passion_reading_value) || !isset($passion_reading_by_id[(int) $selected_passion_reading_value])) {
             $form_errors[] = 'Select a valid passion reading.';
-        } else {
-            $passion_reading_id = (int) $selected_passion_reading_id;
+            break;
         }
+
+        $passion_reading_ids[] = (int) $selected_passion_reading_value;
     }
+    $passion_reading_ids = array_values(array_unique(array_filter($passion_reading_ids, static function (int $id): bool {
+        return $id > 0;
+    })));
+    $passion_reading_id = $passion_reading_ids !== [] ? $passion_reading_ids[0] : null;
 
     $submitted_observance_name = trim((string) ($persisted_observance_detail['observance']['name'] ?? $observance_name));
     $is_advent_midweek = oflc_is_advent_midweek_observance_name($submitted_observance_name);
@@ -1681,8 +1757,10 @@ if ($is_add_submit && $date_error === null) {
         $small_catechism_id = null;
         $small_catechism_ids = [];
         $passion_reading_id = null;
+        $passion_reading_ids = [];
     } elseif (!$is_lent_midweek) {
         $passion_reading_id = null;
+        $passion_reading_ids = [];
     }
 
     $base_hymn_rows = [];
@@ -1907,6 +1985,7 @@ if ($is_add_submit && $date_error === null) {
                 $insert_usage_stmt,
                 $liturgical_calendar_id,
                 $passion_reading_id,
+                $passion_reading_ids,
                 $small_catechism_id,
                 $resolved_selected_reading_set_id,
                 $service_setting_id,
@@ -1929,6 +2008,7 @@ if ($is_add_submit && $date_error === null) {
 
                 $serviceId = (int) $pdo->lastInsertId();
                 oflc_insert_service_small_catechism_links($pdo, $serviceId, $small_catechism_ids, $today);
+                oflc_insert_service_passion_reading_links($pdo, $serviceId, $passion_reading_ids, $today);
 
                 foreach ($hymn_entries as $entry) {
                     $insert_usage_stmt->execute([
@@ -2026,6 +2106,7 @@ include 'includes/header.php';
         data-leader-catalog="<?php echo htmlspecialchars(json_encode($leader_catalog_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-hymn-fill-templates="<?php echo htmlspecialchars(json_encode($hymn_fill_templates, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-small-catechism-labels="<?php echo htmlspecialchars(json_encode(array_values($selected_small_catechism_labels), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+        data-selected-passion-reading-ids="<?php echo htmlspecialchars(json_encode(array_values($selected_passion_reading_ids), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-passion-reading-id="<?php echo htmlspecialchars((string) $selected_passion_reading_id, ENT_QUOTES, 'UTF-8'); ?>"
         data-initial-hymn-state="<?php echo htmlspecialchars(json_encode([
             'hymns' => array_map('strval', $selected_hymns),
@@ -2506,7 +2587,7 @@ window.oflcInitializePlannerUI = function (root) {
     var smallCatechismOptions = [];
     var passionReadingOptions = [];
     var selectedSmallCatechismLabels = [];
-    var selectedPassionReadingId = form ? (form.getAttribute('data-selected-passion-reading-id') || '') : '';
+    var selectedPassionReadingIds = [];
     var readingDraftState = [];
     var hymnState = {
         hymns: {},
@@ -2702,9 +2783,20 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function buildPassionReadingFieldHtml() {
-        return '<select class="service-card-select update-service-reading-input js-passion-reading-select" name="passion_reading_id">' +
-                buildOptionHtml(getFilteredPassionReadingOptions(), selectedPassionReadingId, 'Select passion reading') +
-            '</select>';
+        if (!Array.isArray(selectedPassionReadingIds) || selectedPassionReadingIds.length === 0) {
+            selectedPassionReadingIds = [''];
+        }
+
+        return Array.prototype.map.call(selectedPassionReadingIds, function (selectedValue, index) {
+            return '<div class="service-card-inline-field-row">' +
+                '<select class="service-card-select update-service-reading-input js-passion-reading-select" name="passion_reading_ids[]">' +
+                    buildOptionHtml(getFilteredPassionReadingOptions(), selectedValue, 'Select passion reading') +
+                '</select>' +
+                (index === selectedPassionReadingIds.length - 1
+                    ? '<button type="button" class="service-card-add-inline-button js-passion-reading-add">+</button>'
+                    : '') +
+            '</div>';
+        }).join('');
     }
 
     function bindSupplementalReadingControls() {
@@ -2721,9 +2813,15 @@ window.oflcInitializePlannerUI = function (root) {
             });
         });
 
-        Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-select'), function (input) {
+        Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-select'), function (input, index) {
             input.addEventListener('change', function () {
-                selectedPassionReadingId = input.value;
+                selectedPassionReadingIds[index] = input.value;
+            });
+        });
+        Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-passion-reading-add'), function (button) {
+            button.addEventListener('click', function () {
+                selectedPassionReadingIds.push('');
+                rerenderCurrentReadingsPane();
             });
         });
     }
@@ -3066,6 +3164,14 @@ window.oflcInitializePlannerUI = function (root) {
         passionReadingOptions = JSON.parse(form.getAttribute('data-passion-reading-options') || '[]');
     } catch (error) {
         passionReadingOptions = [];
+    }
+    try {
+        selectedPassionReadingIds = JSON.parse(form.getAttribute('data-selected-passion-reading-ids') || '[]');
+    } catch (error) {
+        selectedPassionReadingIds = [];
+    }
+    if ((!Array.isArray(selectedPassionReadingIds) || selectedPassionReadingIds.length === 0) && form.getAttribute('data-selected-passion-reading-id')) {
+        selectedPassionReadingIds = [form.getAttribute('data-selected-passion-reading-id')];
     }
 
     try {
@@ -4170,7 +4276,7 @@ window.oflcInitializePlannerUI = function (root) {
             ensureSmallCatechismRows();
         }
         if (!showPassionReadingSelect) {
-            selectedPassionReadingId = '';
+            selectedPassionReadingIds = [];
         }
 
         Array.prototype.forEach.call(drafts, function (draft, draftIndex) {
@@ -4178,18 +4284,19 @@ window.oflcInitializePlannerUI = function (root) {
 
             html +=
                     '<div class="service-card-reading-set update-service-reading-editor">' +
-                    (showSmallCatechismSelect
-                        ? buildSmallCatechismFieldsHtml()
-                        : '') +
-                    (showPassionReadingSelect
-                        ? buildPassionReadingFieldHtml()
-                        : '') +
                     '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="psalm" name="new_reading_set_' + index + '_psalm" value="' + escapeHtml(draft.psalm || '') + '" placeholder="Psalm">' +
                     '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="old_testament" name="new_reading_set_' + index + '_old_testament" value="' + escapeHtml(draft.old_testament || '') + '" placeholder="Old Testament">' +
                     '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="epistle" name="new_reading_set_' + index + '_epistle" value="' + escapeHtml(draft.epistle || '') + '" placeholder="Epistle">' +
                     '<input type="text" class="service-card-text update-service-reading-input js-new-reading-set-input" data-draft-index="' + index + '" data-draft-field="gospel" name="new_reading_set_' + index + '_gospel" value="' + escapeHtml(draft.gospel || '') + '" placeholder="Gospel">' +
                 '</div>';
         });
+
+        if (showPassionReadingSelect) {
+            html += buildPassionReadingFieldHtml();
+        }
+        if (showSmallCatechismSelect) {
+            html += buildSmallCatechismFieldsHtml();
+        }
 
         readingsPane.innerHTML = html;
 
@@ -4227,12 +4334,9 @@ window.oflcInitializePlannerUI = function (root) {
             selectedSmallCatechismLabels = [''];
         } else {
             ensureSmallCatechismRows();
-            html += buildSmallCatechismFieldsHtml();
         }
         if (!showPassionReadingSelect) {
-            selectedPassionReadingId = '';
-        } else {
-            html += buildPassionReadingFieldHtml();
+            selectedPassionReadingIds = [];
         }
 
         Array.prototype.forEach.call(readingSets || [], function (readingSet, index) {
@@ -4265,7 +4369,11 @@ window.oflcInitializePlannerUI = function (root) {
         });
 
         if (html === '') {
-            renderNewReadingSetEditor();
+            if (showSmallCatechismSelect || showPassionReadingSelect) {
+                renderNewReadingSetEditor();
+            } else {
+                readingsPane.innerHTML = '&nbsp;';
+            }
             return;
         }
 
@@ -4274,16 +4382,26 @@ window.oflcInitializePlannerUI = function (root) {
         }
 
         selectedNewReadingSet = '';
-        readingEditorDraft = getReadingEditorDraft(readingSets);
-        html += buildReadingEditorFieldsHtml(readingEditorDraft, parseInt(readingEditorDraft.index || '1', 10) || 1);
+        if (showSmallCatechismSelect || showPassionReadingSelect) {
+            readingEditorDraft = getReadingEditorDraft(readingSets);
+            html += buildReadingEditorFieldsHtml(readingEditorDraft, parseInt(readingEditorDraft.index || '1', 10) || 1);
+            if (showPassionReadingSelect) {
+                html += buildPassionReadingFieldHtml();
+            }
+            if (showSmallCatechismSelect) {
+                html += buildSmallCatechismFieldsHtml();
+            }
+        }
         readingsPane.innerHTML = html;
-        readingDraftState[0] = {
-            index: parseInt(readingEditorDraft.index || '1', 10) || 1,
-            psalm: readingEditorDraft.psalm || '',
-            old_testament: readingEditorDraft.old_testament || '',
-            epistle: readingEditorDraft.epistle || '',
-            gospel: readingEditorDraft.gospel || ''
-        };
+        if (showSmallCatechismSelect || showPassionReadingSelect) {
+            readingDraftState[0] = {
+                index: parseInt(readingEditorDraft.index || '1', 10) || 1,
+                psalm: readingEditorDraft.psalm || '',
+                old_testament: readingEditorDraft.old_testament || '',
+                epistle: readingEditorDraft.epistle || '',
+                gospel: readingEditorDraft.gospel || ''
+            };
+        }
         bindReadingSelectionBehavior(readingsPane, function (value) {
             selectedReadingSetId = value || '';
             renderReadingsPane(readingSets || []);

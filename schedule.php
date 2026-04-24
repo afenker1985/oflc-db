@@ -123,25 +123,9 @@ function oflc_schedule_is_lent_midweek_observance(string $name): bool
 function oflc_format_schedule_passion_reading(array $reading): string
 {
     $gospel = trim((string) ($reading['gospel'] ?? ''));
-    $sectionTitle = trim((string) ($reading['section_title'] ?? ''));
     $reference = trim((string) ($reading['reference'] ?? ''));
-    $label = 'Passion: ';
-
-    if ($sectionTitle !== '') {
-        $label .= $sectionTitle;
-        if ($reference !== '') {
-            $label .= ' (' . trim(($gospel !== '' ? $gospel . ' ' : '') . $reference) . ')';
-        }
-
-        return trim($label);
-    }
-
     $body = trim(($gospel !== '' ? $gospel . ' ' : '') . $reference);
-    if ($body === '') {
-        return '';
-    }
-
-    return $label . $body;
+    return $body;
 }
 
 function oflc_select_reading_set(array $readingSets, string $serviceDate): ?array
@@ -424,16 +408,73 @@ function oflc_collect_group_small_catechism_abbreviations(array $services, array
     return $abbreviations;
 }
 
-function oflc_select_group_passion_reading(array $services, array $readingsById): ?array
+function oflc_schedule_service_passion_reading_table_exists(PDO $pdo): bool
 {
-    foreach ($services as $service) {
-        $passionReadingId = (int) ($service['passion_reading_id'] ?? 0);
-        if ($passionReadingId > 0 && isset($readingsById[$passionReadingId])) {
-            return $readingsById[$passionReadingId];
+    static $exists = null;
+
+    if ($exists !== null) {
+        return $exists;
+    }
+
+    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
+    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
+
+    return $exists;
+}
+
+function oflc_fetch_passion_reading_ids_by_service(PDO $pdo, array $serviceIds): array
+{
+    $serviceIds = array_values(array_filter(array_map('intval', $serviceIds), static function (int $serviceId): bool {
+        return $serviceId > 0;
+    }));
+    if ($serviceIds === [] || !oflc_schedule_service_passion_reading_table_exists($pdo)) {
+        return [];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT service_id, passion_reading_id
+         FROM service_passion_reading_db
+         WHERE is_active = 1
+           AND service_id IN (' . $placeholders . ')
+         ORDER BY service_id ASC, sort_order ASC, id ASC'
+    );
+    $stmt->execute($serviceIds);
+
+    $idsByService = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $serviceId = (int) ($row['service_id'] ?? 0);
+        $passionReadingId = (int) ($row['passion_reading_id'] ?? 0);
+        if ($serviceId > 0 && $passionReadingId > 0) {
+            $idsByService[$serviceId][] = $passionReadingId;
         }
     }
 
-    return null;
+    return $idsByService;
+}
+
+function oflc_collect_group_passion_readings(array $services, array $readingsById, array $idsByService): array
+{
+    $readings = [];
+
+    foreach ($services as $service) {
+        $serviceId = (int) ($service['id'] ?? 0);
+        $serviceReadingIds = $idsByService[$serviceId] ?? [];
+        if ($serviceReadingIds === []) {
+            $fallbackId = (int) ($service['passion_reading_id'] ?? 0);
+            if ($fallbackId > 0) {
+                $serviceReadingIds[] = $fallbackId;
+            }
+        }
+
+        foreach ($serviceReadingIds as $passionReadingId) {
+            if ($passionReadingId > 0 && isset($readingsById[$passionReadingId])) {
+                $readings[$passionReadingId] = $readingsById[$passionReadingId];
+            }
+        }
+    }
+
+    return array_values($readings);
 }
 
 function oflc_group_within_date_range(array $group, ?DateTimeImmutable $startDate, ?DateTimeImmutable $endDate): bool
@@ -585,10 +626,15 @@ if ($serviceIds !== []) {
     }
 }
 
+$passionReadingIdsByService = oflc_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
+
 $passionReadingsById = [];
-$passionReadingIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
-    return (int) ($row['passion_reading_id'] ?? 0);
-}, $services))));
+$passionReadingIds = array_values(array_unique(array_filter(array_merge(
+    array_map(static function (array $row): int {
+        return (int) ($row['passion_reading_id'] ?? 0);
+    }, $services),
+    $passionReadingIdsByService === [] ? [] : array_merge(...array_values($passionReadingIdsByService))
+))));
 if ($passionReadingIds !== []) {
     $placeholders = implode(', ', array_fill(0, count($passionReadingIds), '?'));
     $passionReadingStatement = $pdo->prepare(
@@ -838,10 +884,11 @@ if (!$oflcScheduleEmbedded) {
                     $smallCatechismAbbreviations = ($isAdventMidweek || $isLentMidweek)
                         ? oflc_collect_group_small_catechism_abbreviations($group, $smallCatechismAbbreviationsByService)
                         : [];
-                    $passionReading = $isLentMidweek
-                        ? oflc_select_group_passion_reading($group, $passionReadingsById)
-                        : null;
-                    $passionReadingLabel = $passionReading !== null ? oflc_format_schedule_passion_reading($passionReading) : '';
+                    $passionReadingLabels = $isLentMidweek
+                        ? array_values(array_filter(array_map(static function (array $reading): string {
+                            return oflc_format_schedule_passion_reading($reading);
+                        }, oflc_collect_group_passion_readings($group, $passionReadingsById, $passionReadingIdsByService))))
+                        : [];
                     $serviceSummary = $abbreviation;
                     if ($pageNumber !== '') {
                         $serviceSummary .= ($serviceSummary !== '' ? ', ' : '') . 'p. ' . $pageNumber;
@@ -866,7 +913,7 @@ if (!$oflcScheduleEmbedded) {
                             </div>
                         </td>
                         <td class="schedule-table-readings">
-                            <?php if ($selectedReadingSet === null && $smallCatechismAbbreviations === [] && $passionReadingLabel === ''): ?>
+                            <?php if ($selectedReadingSet === null && $smallCatechismAbbreviations === [] && $passionReadingLabels === []): ?>
                                 <div class="schedule-secondary-text">No readings assigned.</div>
                             <?php else: ?>
                                 <?php $psalm = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['psalm'] ?? null, true) : ''; ?>
@@ -874,11 +921,11 @@ if (!$oflcScheduleEmbedded) {
                                 <?php $epistle = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['epistle'] ?? null) : ''; ?>
                                 <?php $gospel = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['gospel'] ?? null) : ''; ?>
                                 <div class="schedule-reading-list">
+                                    <?php foreach ($passionReadingLabels as $passionReadingLabel): ?>
+                                        <div><?php echo htmlspecialchars($passionReadingLabel, ENT_QUOTES, 'UTF-8'); ?></div>
+                                    <?php endforeach; ?>
                                     <?php if ($smallCatechismAbbreviations !== []): ?>
                                         <div><?php echo htmlspecialchars('SC: ' . implode(', ', $smallCatechismAbbreviations), ENT_QUOTES, 'UTF-8'); ?></div>
-                                    <?php endif; ?>
-                                    <?php if ($passionReadingLabel !== ''): ?>
-                                        <div><?php echo htmlspecialchars($passionReadingLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                                     <?php endif; ?>
                                     <?php if ($psalm !== ''): ?>
                                         <div><?php echo htmlspecialchars($psalm, ENT_QUOTES, 'UTF-8'); ?></div>
