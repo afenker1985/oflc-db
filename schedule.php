@@ -93,6 +93,56 @@ function oflc_clean_reading_text($text, bool $removeAntiphon = false): string
     return trim($text);
 }
 
+function oflc_schedule_has_midweek_marker(string $name): bool
+{
+    $normalizedName = strtolower(trim($name));
+
+    return $normalizedName !== ''
+        && (strpos($normalizedName, 'midweek') !== false || strpos($normalizedName, 'midwk') !== false);
+}
+
+function oflc_schedule_is_advent_midweek_observance(string $name): bool
+{
+    $normalizedName = strtolower(trim($name));
+
+    return $normalizedName !== ''
+        && strpos($normalizedName, 'advent') !== false
+        && oflc_schedule_has_midweek_marker($normalizedName);
+}
+
+function oflc_schedule_is_lent_midweek_observance(string $name): bool
+{
+    $normalizedName = strtolower(trim($name));
+
+    return $normalizedName !== ''
+        && strpos($normalizedName, 'lent') !== false
+        && oflc_schedule_has_midweek_marker($normalizedName);
+}
+
+function oflc_format_schedule_passion_reading(array $reading): string
+{
+    $gospel = trim((string) ($reading['gospel'] ?? ''));
+    $sectionTitle = trim((string) ($reading['section_title'] ?? ''));
+    $reference = trim((string) ($reading['reference'] ?? ''));
+    $label = 'Passion: ';
+
+    if ($sectionTitle !== '') {
+        $label .= $sectionTitle;
+        if ($reference !== '') {
+            $label .= ' (' . trim(($gospel !== '' ? $gospel . ' ' : '') . $reference) . ')';
+        }
+
+        return trim($label);
+    }
+
+    $body = trim(($gospel !== '' ? $gospel . ' ' : '') . $reference);
+    if ($body === '') {
+        return '';
+    }
+
+    return $label . $body;
+}
+
 function oflc_select_reading_set(array $readingSets, string $serviceDate): ?array
 {
     if ($readingSets === []) {
@@ -356,6 +406,35 @@ function oflc_merge_group_hymns(array $services, array $hymnsByService): array
     return $merged;
 }
 
+function oflc_collect_group_small_catechism_abbreviations(array $services, array $abbreviationsByService): array
+{
+    $abbreviations = [];
+
+    foreach ($services as $service) {
+        $serviceId = (int) ($service['id'] ?? 0);
+        foreach ($abbreviationsByService[$serviceId] ?? [] as $abbreviation) {
+            $abbreviation = trim((string) $abbreviation);
+            if ($abbreviation !== '' && !in_array($abbreviation, $abbreviations, true)) {
+                $abbreviations[] = $abbreviation;
+            }
+        }
+    }
+
+    return $abbreviations;
+}
+
+function oflc_select_group_passion_reading(array $services, array $readingsById): ?array
+{
+    foreach ($services as $service) {
+        $passionReadingId = (int) ($service['passion_reading_id'] ?? 0);
+        if ($passionReadingId > 0 && isset($readingsById[$passionReadingId])) {
+            return $readingsById[$passionReadingId];
+        }
+    }
+
+    return null;
+}
+
 function oflc_group_within_date_range(array $group, ?DateTimeImmutable $startDate, ?DateTimeImmutable $endDate): bool
 {
     if (!$startDate instanceof DateTimeImmutable && !$endDate instanceof DateTimeImmutable) {
@@ -451,6 +530,7 @@ $serviceStatement = $pdo->query(
         s.id,
         s.service_date,
         s.service_order,
+        s.passion_reading_id,
         s.liturgical_calendar_id,
         lc.name AS observance_name,
         lc.latin_name,
@@ -471,6 +551,60 @@ $services = $serviceStatement->fetchAll();
 $serviceIds = array_map(static function (array $row): int {
     return (int) $row['id'];
 }, $services);
+
+$smallCatechismAbbreviationsByService = [];
+if ($serviceIds !== []) {
+    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
+    $smallCatechismStatement = $pdo->prepare(
+        'SELECT
+            sc.service_id,
+            sm.abbreviation
+         FROM service_small_catechism_db sc
+         INNER JOIN small_catechism_mysql sm ON sm.id = sc.small_catechism_id
+         WHERE sc.is_active = 1
+           AND sc.service_id IN (' . $placeholders . ')
+         ORDER BY sc.service_id ASC, sc.sort_order ASC, sc.id ASC'
+    );
+    $smallCatechismStatement->execute($serviceIds);
+
+    foreach ($smallCatechismStatement->fetchAll() as $row) {
+        $serviceId = (int) ($row['service_id'] ?? 0);
+        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
+        if ($serviceId <= 0 || $abbreviation === '') {
+            continue;
+        }
+
+        if (!isset($smallCatechismAbbreviationsByService[$serviceId])) {
+            $smallCatechismAbbreviationsByService[$serviceId] = [];
+        }
+
+        if (!in_array($abbreviation, $smallCatechismAbbreviationsByService[$serviceId], true)) {
+            $smallCatechismAbbreviationsByService[$serviceId][] = $abbreviation;
+        }
+    }
+}
+
+$passionReadingsById = [];
+$passionReadingIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
+    return (int) ($row['passion_reading_id'] ?? 0);
+}, $services))));
+if ($passionReadingIds !== []) {
+    $placeholders = implode(', ', array_fill(0, count($passionReadingIds), '?'));
+    $passionReadingStatement = $pdo->prepare(
+        'SELECT id, gospel, section_title, reference
+         FROM passion_reading_db
+         WHERE is_active = 1
+           AND id IN (' . $placeholders . ')'
+    );
+    $passionReadingStatement->execute($passionReadingIds);
+
+    foreach ($passionReadingStatement->fetchAll() as $row) {
+        $passionReadingId = (int) ($row['id'] ?? 0);
+        if ($passionReadingId > 0) {
+            $passionReadingsById[$passionReadingId] = $row;
+        }
+    }
+}
 
 $liturgicalCalendarIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
     return (int) ($row['liturgical_calendar_id'] ?? 0);
@@ -523,7 +657,7 @@ if ($serviceIds !== []) {
          LEFT JOIN hymn_db hd ON hd.id = hu.hymn_id
          WHERE hu.is_active = 1
            AND hu.sunday_id IN (' . $placeholders . ')
-         ORDER BY hu.sunday_id ASC, hu.slot_id ASC, hu.sort_order ASC, hu.id ASC'
+         ORDER BY hu.sunday_id ASC, hu.sort_order ASC, hu.id ASC'
     );
     $hymnStatement->execute($serviceIds);
 
@@ -698,6 +832,15 @@ if (!$oflcScheduleEmbedded) {
                     $abbreviation = trim((string) ($primaryService['abbreviation'] ?? ''));
                     $pageNumber = trim((string) ($primaryService['page_number'] ?? ''));
                     $leaderDisplay = oflc_format_combined_leader_name($group);
+                    $isAdventMidweek = oflc_schedule_is_advent_midweek_observance($observanceName);
+                    $isLentMidweek = oflc_schedule_is_lent_midweek_observance($observanceName);
+                    $smallCatechismAbbreviations = ($isAdventMidweek || $isLentMidweek)
+                        ? oflc_collect_group_small_catechism_abbreviations($group, $smallCatechismAbbreviationsByService)
+                        : [];
+                    $passionReading = $isLentMidweek
+                        ? oflc_select_group_passion_reading($group, $passionReadingsById)
+                        : null;
+                    $passionReadingLabel = $passionReading !== null ? oflc_format_schedule_passion_reading($passionReading) : '';
                     $serviceSummary = $abbreviation;
                     if ($pageNumber !== '') {
                         $serviceSummary .= ($serviceSummary !== '' ? ', ' : '') . 'p. ' . $pageNumber;
@@ -722,14 +865,20 @@ if (!$oflcScheduleEmbedded) {
                             </div>
                         </td>
                         <td class="schedule-table-readings">
-                            <?php if ($selectedReadingSet === null): ?>
+                            <?php if ($selectedReadingSet === null && $smallCatechismAbbreviations === [] && $passionReadingLabel === ''): ?>
                                 <div class="schedule-secondary-text">No readings assigned.</div>
                             <?php else: ?>
-                                <?php $psalm = oflc_clean_reading_text($selectedReadingSet['psalm'] ?? null, true); ?>
-                                <?php $oldTestament = oflc_clean_reading_text($selectedReadingSet['old_testament'] ?? null); ?>
-                                <?php $epistle = oflc_clean_reading_text($selectedReadingSet['epistle'] ?? null); ?>
-                                <?php $gospel = oflc_clean_reading_text($selectedReadingSet['gospel'] ?? null); ?>
+                                <?php $psalm = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['psalm'] ?? null, true) : ''; ?>
+                                <?php $oldTestament = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['old_testament'] ?? null) : ''; ?>
+                                <?php $epistle = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['epistle'] ?? null) : ''; ?>
+                                <?php $gospel = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['gospel'] ?? null) : ''; ?>
                                 <div class="schedule-reading-list">
+                                    <?php if ($smallCatechismAbbreviations !== []): ?>
+                                        <div><?php echo htmlspecialchars('SC: ' . implode(', ', $smallCatechismAbbreviations), ENT_QUOTES, 'UTF-8'); ?></div>
+                                    <?php endif; ?>
+                                    <?php if ($passionReadingLabel !== ''): ?>
+                                        <div><?php echo htmlspecialchars($passionReadingLabel, ENT_QUOTES, 'UTF-8'); ?></div>
+                                    <?php endif; ?>
                                     <?php if ($psalm !== ''): ?>
                                         <div><?php echo htmlspecialchars($psalm, ENT_QUOTES, 'UTF-8'); ?></div>
                                     <?php endif; ?>

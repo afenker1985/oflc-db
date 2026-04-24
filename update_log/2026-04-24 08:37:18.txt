@@ -1,0 +1,23 @@
+# Update Log
+
+- Timestamp: 2026-04-24 08:37:18
+
+## Bug and UI fixes
+
+1. `update-service` month navigation was changed to fetch and replace the page content with JavaScript instead of doing a full page reload, which makes `prev mo` and `next mo` much faster.
+2. `update-service` now keeps the browser URL clean by stripping filter and update query parameters after the page state is loaded.
+3. Black liturgical weeks in the `update-service` list now render in bold text.
+4. Red liturgical color text was updated to bright red `#FF0000`.
+5. In `add-service` and `update-service`, Thursday leader fields now appear before Sunday leader fields when both services are being edited together.
+6. The `update-service` list scroll area now includes bottom padding so the final row is no longer cut off while scrolling.
+7. Advent and Lent midweek detection now recognizes both `Midweek` and `MidWk`, so their reading-related controls appear correctly in `add-service` and `update-service`.
+8. `schedule.php` now includes Small Catechism readings for Advent and Lent midweeks using their abbreviations, shown as `SC: ...`.
+9. `schedule.php` now includes Passion reading lines for Lent midweeks.
+10. Hymn display order is now saved and reused as a service-wide order in `add-service`, `update-service`, and `schedule.php`, so added extra hymns stay in the same position in the order of service.
+
+## Files updated
+
+- `add-service.php`
+- `update-service.php`
+- `schedule.php`
+- `css/services.css`

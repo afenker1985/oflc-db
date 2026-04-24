@@ -605,7 +605,7 @@
 }
 
 .service-card-color-red {
-    color: #b13232;
+    color: #ff0000;
 }
 
 .service-card-color-black {
@@ -1205,7 +1205,7 @@ tr.is-selected td {
 .schedule-table tbody tr.service-card-color-red,
 .schedule-table tbody tr.service-card-color-red td,
 .schedule-table tbody tr.service-card-color-red td * {
-    color: #b13232;
+    color: #ff0000;
 }
 
 .schedule-table tbody tr.service-card-color-black,
@@ -1314,7 +1314,9 @@ body.update-service-page .content > h3:first-child {
     min-height: 0;
     max-height: 100%;
     overflow-y: auto;
-    padding-right: 6px;
+    padding: 0 6px 28px 0;
+    box-sizing: border-box;
+    scroll-padding-bottom: 28px;
     font-family: Georgia, "Times New Roman", Times, serif;
     font-size: 12pt;
 }
@@ -1328,8 +1330,19 @@ body.update-service-page .content > h3:first-child {
     margin-top: 10px;
 }
 
+.update-service-row:last-child {
+    margin-bottom: 12px;
+}
+
 .update-service-row[open] {
     box-shadow: 0 2px 10px rgba(17, 17, 17, 0.08);
+}
+
+.update-service-row.service-card-color-black,
+.update-service-row.service-card-color-black .update-service-summary,
+.update-service-row.service-card-color-black .update-service-summary * {
+    color: #111111;
+    font-weight: 700;
 }
 
 .update-service-forms {

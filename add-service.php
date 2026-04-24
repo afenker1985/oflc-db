@@ -989,7 +989,7 @@ function oflc_is_advent_midweek_observance_name(string $name): bool
     $normalized_name = strtolower(trim($name));
     return $normalized_name !== ''
         && strpos($normalized_name, 'advent') !== false
-        && strpos($normalized_name, 'midweek') !== false;
+        && (strpos($normalized_name, 'midweek') !== false || strpos($normalized_name, 'midwk') !== false);
 }
 
 function oflc_is_lent_midweek_observance_name(string $name): bool
@@ -997,7 +997,7 @@ function oflc_is_lent_midweek_observance_name(string $name): bool
     $normalized_name = strtolower(trim($name));
     return $normalized_name !== ''
         && strpos($normalized_name, 'lent') !== false
-        && strpos($normalized_name, 'midweek') !== false;
+        && (strpos($normalized_name, 'midweek') !== false || strpos($normalized_name, 'midwk') !== false);
 }
 
 function oflc_fetch_hymn_slots(PDO $pdo): array
@@ -1708,8 +1708,6 @@ if ($is_add_submit && $date_error === null) {
         $base_row_rank_by_key[$base_row_key] = $base_row_rank;
     }
 
-    $slot_sort_order_counts = [];
-
     foreach ($ordered_hymn_row_keys as $display_position => $row_key) {
         if (!isset($all_hymn_rows[$row_key])) {
             continue;
@@ -1742,12 +1740,10 @@ if ($is_add_submit && $date_error === null) {
             continue;
         }
 
-        $slot_sort_order_counts[$slot_name] = ($slot_sort_order_counts[$slot_name] ?? 0) + 1;
-
         $hymn_entries[] = [
             'hymn_id' => $hymn_id,
             'slot_id' => (int) $hymn_slots[$slot_name]['id'],
-            'sort_order' => $slot_sort_order_counts[$slot_name],
+            'sort_order' => $display_position + 1,
             'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
         ];
     }
@@ -2185,18 +2181,35 @@ include 'includes/header.php';
             </section>
 
             <section class="service-card-panel">
+                <?php
+                $show_secondary_preacher = $copy_service_config !== null && isset($request_data[(string) $copy_service_config['toggle_name']]);
+                $show_secondary_first = $copy_service_config !== null && ($copy_service_config['primary_key'] ?? '') === 'sunday';
+                ?>
+                <?php if ($show_secondary_first): ?>
+                    <div class="service-card-optional-field<?php echo $show_secondary_preacher ? ' is-visible' : ''; ?>" id="secondary-preacher-wrap">
+                        <label class="service-card-label" for="secondary_preacher"><?php echo htmlspecialchars((string) ($copy_service_config['secondary_label'] ?? 'Second Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
+                        <div class="service-card-suggestion-anchor">
+                            <input type="text" id="secondary_preacher" name="secondary_preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_secondary_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="<?php echo htmlspecialchars((string) ($copy_service_config['secondary_placeholder'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" autocomplete="off">
+                            <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-secondary-leader-suggestion-list" hidden></div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
                 <label class="service-card-label" for="preacher"><?php echo htmlspecialchars((string) ($copy_service_config['primary_label'] ?? 'Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <div class="service-card-suggestion-anchor">
                     <input type="text" id="preacher" name="preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Fenker" autocomplete="off">
                     <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-leader-suggestion-list" hidden></div>
                 </div>
-                <div class="service-card-optional-field<?php echo $copy_service_config !== null && isset($request_data[(string) $copy_service_config['toggle_name']]) ? ' is-visible' : ''; ?>" id="secondary-preacher-wrap">
-                    <label class="service-card-label" for="secondary_preacher"><?php echo htmlspecialchars((string) ($copy_service_config['secondary_label'] ?? 'Second Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
-                    <div class="service-card-suggestion-anchor">
-                        <input type="text" id="secondary_preacher" name="secondary_preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_secondary_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="<?php echo htmlspecialchars((string) ($copy_service_config['secondary_placeholder'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" autocomplete="off">
-                        <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-secondary-leader-suggestion-list" hidden></div>
+
+                <?php if (!$show_secondary_first): ?>
+                    <div class="service-card-optional-field<?php echo $show_secondary_preacher ? ' is-visible' : ''; ?>" id="secondary-preacher-wrap">
+                        <label class="service-card-label" for="secondary_preacher"><?php echo htmlspecialchars((string) ($copy_service_config['secondary_label'] ?? 'Second Leader'), ENT_QUOTES, 'UTF-8'); ?></label>
+                        <div class="service-card-suggestion-anchor">
+                            <input type="text" id="secondary_preacher" name="secondary_preacher" class="service-card-text" value="<?php echo htmlspecialchars($selected_secondary_preacher, ENT_QUOTES, 'UTF-8'); ?>" placeholder="<?php echo htmlspecialchars((string) ($copy_service_config['secondary_placeholder'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" autocomplete="off">
+                            <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-secondary-leader-suggestion-list" hidden></div>
+                        </div>
                     </div>
-                </div>
+                <?php endif; ?>
             </section>
         </div>
     </form>
@@ -2540,12 +2553,16 @@ window.oflcInitializePlannerUI = function (root) {
 
     function isAdventMidweekObservanceName(name) {
         var normalizedName = String(name || '').trim().toLowerCase();
-        return normalizedName !== '' && normalizedName.indexOf('advent') !== -1 && normalizedName.indexOf('midweek') !== -1;
+        return normalizedName !== ''
+            && normalizedName.indexOf('advent') !== -1
+            && (normalizedName.indexOf('midweek') !== -1 || normalizedName.indexOf('midwk') !== -1);
     }
 
     function isLentMidweekObservanceName(name) {
         var normalizedName = String(name || '').trim().toLowerCase();
-        return normalizedName !== '' && normalizedName.indexOf('lent') !== -1 && normalizedName.indexOf('midweek') !== -1;
+        return normalizedName !== ''
+            && normalizedName.indexOf('lent') !== -1
+            && (normalizedName.indexOf('midweek') !== -1 || normalizedName.indexOf('midwk') !== -1);
     }
 
     function buildOptionHtml(options, selectedValue, placeholder) {
