@@ -11,6 +11,8 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/church_year.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
+require_once __DIR__ . '/includes/service_observance_suggestions.php';
+require_once __DIR__ . '/includes/service_planner_form.php';
 require_once __DIR__ . '/includes/liturgical_colors.php';
 require_once __DIR__ . '/includes/hymn_layout.php';
 
@@ -1545,19 +1547,16 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
     ];
 }
 
-function oflc_update_build_date_observance_suggestions(PDO $pdo, string $selectedDate): array
+function oflc_update_build_date_observance_suggestion_payload(PDO $pdo, string $selectedDate): array
 {
     $optionData = oflc_update_build_service_option_data($pdo, $selectedDate);
-    $names = [];
+    $choices = $optionData['choices'] ?? [];
+    $detailsByKey = $optionData['details_by_key'] ?? [];
 
-    foreach (($optionData['choices'] ?? []) as $choice) {
-        $name = trim((string) ($choice['suggestion_label'] ?? $choice['label'] ?? ''));
-        if ($name !== '') {
-            $names[$name] = $name;
-        }
-    }
-
-    return array_values($names);
+    return [
+        'suggestions' => oflc_service_build_date_observance_suggestions($choices),
+        'lookup' => oflc_service_build_observance_suggestion_lookup($choices, $detailsByKey),
+    ];
 }
 
 function oflc_update_build_hymn_field_definitions(?array $serviceSettingDetail, array $hymnSlots): array
@@ -2245,7 +2244,56 @@ $updateServiceResetQuery = array_filter($updateServiceResetQuery, static functio
 });
 $updateServiceResetUrl = 'update-service.php' . ($updateServiceResetQuery !== [] ? '?' . http_build_query($updateServiceResetQuery) : '');
 
-if ($requestMethod === 'POST' && isset($_POST['update_service'])) {
+if ($requestMethod === 'POST' && isset($_POST['preview_update_service'])) {
+    $serviceId = isset($_POST['service_id']) ? (int) $_POST['service_id'] : 0;
+    $activeExpandedServiceId = $serviceId;
+
+    if ($serviceId > 0) {
+        $submittedState = [
+            'service_date' => oflc_update_request_value($_POST, 'service_date'),
+            'observance_id' => oflc_update_request_value($_POST, 'observance_id'),
+            'observance_name' => oflc_update_request_value($_POST, 'observance_name'),
+            'new_observance_color' => oflc_update_request_value($_POST, 'new_observance_color'),
+            'service_setting' => oflc_update_request_value($_POST, 'service_setting'),
+            'service_setting_name' => oflc_update_request_value($_POST, 'service_setting_name'),
+            'selected_reading_set_id' => oflc_update_request_value($_POST, 'selected_reading_set_id'),
+            'selected_new_reading_set' => oflc_update_request_value($_POST, 'selected_new_reading_set'),
+            'selected_small_catechism_labels' => oflc_update_request_values($_POST, 'small_catechism_labels'),
+            'selected_passion_reading_id' => oflc_update_request_value($_POST, 'passion_reading_id'),
+            'selected_passion_reading_ids' => oflc_update_request_values($_POST, 'passion_reading_ids'),
+            'new_reading_sets' => oflc_service_normalize_new_reading_set_drafts($_POST),
+            'preacher' => oflc_update_request_value($_POST, 'preacher'),
+            'thursday_preacher' => oflc_update_request_value($_POST, 'thursday_preacher'),
+            'selected_hymns' => [],
+            'selected_hymn_stanzas' => oflc_update_request_stanza_map($_POST, 'hymn_stanzas'),
+            'extra_hymn_rows' => oflc_update_normalize_extra_hymn_rows($_POST),
+            'hymn_row_order' => oflc_update_parse_hymn_row_order($_POST),
+            'copy_to_previous_thursday' => isset($_POST['copy_to_previous_thursday']),
+            'link_action' => oflc_update_request_value($_POST, 'link_action'),
+        ];
+
+        for ($hymnIndex = 1; $hymnIndex <= 8; $hymnIndex++) {
+            $submittedState['selected_hymns'][$hymnIndex] = oflc_update_request_value($_POST, 'hymn_' . $hymnIndex);
+        }
+
+        if ($submittedState['selected_passion_reading_ids'] === [] && $submittedState['selected_passion_reading_id'] !== '') {
+            $submittedState['selected_passion_reading_ids'][] = $submittedState['selected_passion_reading_id'];
+        }
+
+        if (isset($_POST['preview_reset_readings']) && (string) $_POST['preview_reset_readings'] === '1') {
+            $submittedState['selected_reading_set_id'] = '';
+            $submittedState['selected_new_reading_set'] = '';
+            $submittedState['selected_small_catechism_labels'] = [''];
+            $submittedState['selected_passion_reading_id'] = '';
+            $submittedState['selected_passion_reading_ids'] = [];
+            $submittedState['new_reading_sets'] = oflc_service_normalize_new_reading_set_drafts([]);
+        }
+
+        $formStateByServiceId[$serviceId] = $submittedState;
+    }
+}
+
+if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POST['preview_update_service'])) {
     $serviceId = isset($_POST['service_id']) ? (int) $_POST['service_id'] : 0;
     $activeExpandedServiceId = $serviceId;
     $targetServiceIds = array_values(array_unique(array_filter(
@@ -3203,9 +3251,11 @@ include 'includes/header.php';
                         $hymnFieldDefinitions = oflc_update_build_hymn_field_definitions($selectedServiceSettingDetail, $hymnSlots);
                         $formDate = $formState['service_date'];
                         if (!isset($dateObservanceSuggestionsCache[$formDate])) {
-                            $dateObservanceSuggestionsCache[$formDate] = oflc_update_build_date_observance_suggestions($pdo, $formDate);
+                            $dateObservanceSuggestionsCache[$formDate] = oflc_update_build_date_observance_suggestion_payload($pdo, $formDate);
                         }
-                        $dateObservanceSuggestions = $dateObservanceSuggestionsCache[$formDate];
+                        $dateObservanceSuggestionPayload = $dateObservanceSuggestionsCache[$formDate];
+                        $dateObservanceSuggestions = array_values($dateObservanceSuggestionPayload['suggestions'] ?? []);
+                        $dateObservanceSuggestionLookup = $dateObservanceSuggestionPayload['lookup'] ?? [];
                         $selectedObservanceId = ctype_digit((string) ($formState['observance_id'] ?? ''))
                             ? (int) $formState['observance_id']
                             : 0;
@@ -3288,6 +3338,7 @@ include 'includes/header.php';
                                 data-selected-new-reading-set="<?php echo htmlspecialchars((string) ($formState['selected_new_reading_set'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-initial-reading-editor="<?php echo htmlspecialchars(json_encode(oflc_update_prepare_frontend_reading_drafts($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([])), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-date-observance-suggestions="<?php echo htmlspecialchars(json_encode(array_values($dateObservanceSuggestions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+                                data-observance-suggestion-lookup="<?php echo htmlspecialchars(json_encode($dateObservanceSuggestionLookup, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-small-catechism-options="<?php echo htmlspecialchars(json_encode(array_values($smallCatechismOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-passion-reading-options="<?php echo htmlspecialchars(json_encode(array_values($passionReadingOptions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-selected-small-catechism-labels="<?php echo htmlspecialchars(json_encode(array_values($formState['selected_small_catechism_labels'] ?? []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
@@ -3307,6 +3358,8 @@ include 'includes/header.php';
                             >
                                 <input type="hidden" name="update_service" value="1">
                                 <input type="hidden" name="service_id" value="<?php echo $serviceId; ?>">
+                                <input type="hidden" name="preview_update_service" value="" class="js-preview-update-service-flag">
+                                <input type="hidden" name="preview_reset_readings" value="" class="js-preview-reset-readings-flag">
                                 <input type="hidden" name="return_search" value="<?php echo htmlspecialchars($selectedSearchTerm, ENT_QUOTES, 'UTF-8'); ?>" class="js-return-search-input">
                                 <input type="hidden" name="return_rubric_year" value="<?php echo htmlspecialchars($selectedRubricYear, ENT_QUOTES, 'UTF-8'); ?>">
                                 <input type="hidden" name="return_start_date" value="<?php echo htmlspecialchars($filterStartInput, ENT_QUOTES, 'UTF-8'); ?>">
@@ -3328,190 +3381,178 @@ include 'includes/header.php';
                                     <input type="hidden" name="original_copy_to_previous_thursday" value="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>">
                                     <input type="hidden" name="link_action" value="<?php echo htmlspecialchars($linkAction, ENT_QUOTES, 'UTF-8'); ?>" class="js-link-action-flag">
                                 <?php endif; ?>
-                                <div class="service-card-grid">
-                                    <section class="service-card-panel">
-                                        <div class="service-card-date-row">
-                                            <input
-                                                type="date"
-                                                id="service_date_<?php echo $serviceId; ?>"
-                                                name="service_date"
-                                                class="service-card-text"
-                                                value="<?php echo htmlspecialchars($formDate, ENT_QUOTES, 'UTF-8'); ?>"
-                                            >
+                                <?php
+                                $readingHtml = '&nbsp;';
+                                $allowReadingEditor = $showSmallCatechismDropdown || $showPassionReadingDropdown;
+                                $selectedReadingSets = $selectedOptionDetail['reading_sets'] ?? [];
+
+                                if ($selectedOptionDetail !== null || $selectedObservanceName !== '') {
+                                    $readingHtml = '';
+                                    if (count($selectedReadingSets) > 0) {
+                                        $readingHtml .= oflc_update_render_observance_readings_html($selectedOptionDetail, $selectedReadingSetId);
+                                    }
+
+                                    if ($allowReadingEditor) {
+                                        $readingHtml .= count($selectedReadingSets) > 0
+                                            ? oflc_update_render_existing_reading_editor_html($selectedOptionDetail, $selectedReadingSetId, $formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]))
+                                            : oflc_update_render_new_reading_set_editor_html($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]), (string) ($formState['selected_new_reading_set'] ?? ''));
+
+                                        if ($showPassionReadingDropdown) {
+                                            $readingHtml .= oflc_update_render_passion_reading_fields_html(
+                                                $filteredPassionReadingOptions,
+                                                $formState['selected_passion_reading_ids'] ?? []
+                                            );
+                                        }
+
+                                        if ($showSmallCatechismDropdown) {
+                                            $readingHtml .= oflc_update_render_small_catechism_fields_html(
+                                                $formState['selected_small_catechism_labels'] ?? []
+                                            );
+                                        }
+                                    }
+
+                                    if ($readingHtml === '') {
+                                        $readingHtml = '&nbsp;';
+                                    }
+                                }
+
+                                ob_start();
+                                if ($showPreviousThursdayToggle && $previousThursdayLabel !== null):
+                                ?>
+                                    <label class="service-card-checkbox update-service-thursday-toggle">
+                                        <input
+                                            type="checkbox"
+                                            name="copy_to_previous_thursday"
+                                            value="1"
+                                            class="js-copy-to-previous-thursday"
+                                            data-original-copy="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>"
+                                            <?php echo $copyToPreviousThursday ? 'checked' : ''; ?>
+                                        >
+                                        <span>Copy this service to the previous Thursday (<?php echo htmlspecialchars($previousThursdayLabel, ENT_QUOTES, 'UTF-8'); ?>)?</span>
+                                    </label>
+                                    <div class="update-service-separate-alert js-separate-thursday-alert">
+                                        <div class="update-service-separate-alert-title js-separate-thursday-alert-title">Would you like to separate Thursday from Sunday?</div>
+                                        <div class="update-service-separate-alert-actions">
+                                            <button type="button" class="update-service-confirm-button update-service-confirm-button-yes js-separate-thursday-yes">Yes</button>
+                                            <button type="button" class="update-service-confirm-button update-service-confirm-button-no js-separate-thursday-no">No</button>
                                         </div>
-                                        <div class="service-card-display-date"><?php echo $serviceDateDisplay === '&nbsp;' ? '&nbsp;' : htmlspecialchars($serviceDateDisplay, ENT_QUOTES, 'UTF-8'); ?></div>
-                                        <input type="hidden" name="observance_id" value="<?php echo htmlspecialchars((string) ($selectedObservanceId > 0 ? $selectedObservanceId : ''), ENT_QUOTES, 'UTF-8'); ?>" class="js-observance-id-input">
-                                        <div class="service-card-suggestion-anchor">
-                                            <input
-                                                type="text"
-                                                id="observance_name_<?php echo $serviceId; ?>"
-                                                name="observance_name"
-                                                class="service-card-text js-observance-name-input"
-                                                value="<?php echo htmlspecialchars($selectedObservanceName, ENT_QUOTES, 'UTF-8'); ?>"
-                                                placeholder="Liturgical observance"
-                                                autocomplete="off"
-                                            >
-                                            <div class="service-card-suggestion-list js-observance-suggestion-list" hidden></div>
-                                        </div>
-                                        <div class="service-card-latin-name js-observance-latin-name">
-                                            <?php echo $selectedLatinName !== '' ? htmlspecialchars($selectedLatinName, ENT_QUOTES, 'UTF-8') : '&nbsp;'; ?>
-                                        </div>
-                                        <div class="service-card-meta">
-                                            <input type="hidden" id="service_setting_<?php echo $serviceId; ?>" name="service_setting" value="<?php echo htmlspecialchars($selectedServiceSetting, ENT_QUOTES, 'UTF-8'); ?>" class="js-service-setting-id-input">
-                                            <div class="service-card-suggestion-anchor">
-                                                <input
-                                                    type="text"
-                                                    id="service_setting_name_<?php echo $serviceId; ?>"
-                                                    name="service_setting_name"
-                                                    class="service-card-text js-service-setting-input"
-                                                    value="<?php echo htmlspecialchars($selectedServiceSettingName, ENT_QUOTES, 'UTF-8'); ?>"
-                                                    placeholder="Service type"
-                                                    autocomplete="off"
-                                                >
-                                                <div class="service-card-suggestion-list service-card-suggestion-list-fixed js-service-setting-suggestion-list" hidden></div>
-                                            </div>
-                                            <div class="service-card-service-summary js-service-setting-summary"><?php echo $selectedServiceSettingSummary === '&nbsp;' ? '&nbsp;' : htmlspecialchars($selectedServiceSettingSummary, ENT_QUOTES, 'UTF-8'); ?></div>
-                                            <div class="service-card-color-slot">
-                                                <div class="service-card-color-line js-observance-color-line<?php echo $selectedOptionDetail === null && $selectedObservanceName !== '' ? ' is-hidden' : ''; ?>"><?php echo $selectedColorDisplay !== '' ? htmlspecialchars($selectedColorDisplay, ENT_QUOTES, 'UTF-8') : '&nbsp;'; ?></div>
-                                                <div class="update-service-new-observance-color js-new-observance-color-wrap<?php echo $selectedOptionDetail === null && $selectedObservanceName !== '' ? ' is-visible' : ''; ?>">
-                                                    <select id="new_observance_color_<?php echo $serviceId; ?>" name="new_observance_color" class="service-card-select js-new-observance-color-select">
-                                                        <option value="">Choose color</option>
-                                                        <?php foreach ($liturgicalColorOptions as $liturgicalColorOption): ?>
-                                                            <option value="<?php echo htmlspecialchars($liturgicalColorOption, ENT_QUOTES, 'UTF-8'); ?>"<?php echo ($formState['new_observance_color'] ?? '') === $liturgicalColorOption ? ' selected' : ''; ?>>
-                                                                <?php echo htmlspecialchars($liturgicalColorOption, ENT_QUOTES, 'UTF-8'); ?>
-                                                            </option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <?php if ($showPreviousThursdayToggle && $previousThursdayLabel !== null): ?>
-                                                <label class="service-card-checkbox update-service-thursday-toggle">
-                                                    <input
-                                                        type="checkbox"
-                                                        name="copy_to_previous_thursday"
-                                                        value="1"
-                                                        class="js-copy-to-previous-thursday"
-                                                        data-original-copy="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>"
-                                                        <?php echo $copyToPreviousThursday ? 'checked' : ''; ?>
-                                                    >
-                                                    <span>Copy this service to the previous Thursday (<?php echo htmlspecialchars($previousThursdayLabel, ENT_QUOTES, 'UTF-8'); ?>)?</span>
-                                                </label>
-                                                <div class="update-service-separate-alert js-separate-thursday-alert">
-                                                    <div class="update-service-separate-alert-title js-separate-thursday-alert-title">Would you like to separate Thursday from Sunday?</div>
-                                                    <div class="update-service-separate-alert-actions">
-                                                        <button type="button" class="update-service-confirm-button update-service-confirm-button-yes js-separate-thursday-yes">Yes</button>
-                                                        <button type="button" class="update-service-confirm-button update-service-confirm-button-no js-separate-thursday-no">No</button>
-                                                    </div>
-                                                </div>
-                                            <?php endif; ?>
-                                        </div>
-                                    </section>
+                                    </div>
+                                <?php
+                                endif;
+                                $plannerMetaAppendHtml = ob_get_clean();
 
-                                    <section class="service-card-panel">
-                                        <div class="service-card-readings js-observance-readings"><?php
-                                            $readingHtml = '&nbsp;';
-                                            $allowReadingEditor = $showSmallCatechismDropdown || $showPassionReadingDropdown;
-                                            $selectedReadingSets = $selectedOptionDetail['reading_sets'] ?? [];
-
-                                            if ($selectedOptionDetail !== null || $selectedObservanceName !== '') {
-                                                $readingHtml = '';
-                                                if (count($selectedReadingSets) > 0) {
-                                                    $readingHtml .= oflc_update_render_observance_readings_html($selectedOptionDetail, $selectedReadingSetId);
-                                                }
-
-                                                if ($allowReadingEditor) {
-                                                    $readingHtml .= count($selectedReadingSets) > 0
-                                                        ? oflc_update_render_existing_reading_editor_html($selectedOptionDetail, $selectedReadingSetId, $formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]))
-                                                        : oflc_update_render_new_reading_set_editor_html($formState['new_reading_sets'] ?? oflc_service_normalize_new_reading_set_drafts([]), (string) ($formState['selected_new_reading_set'] ?? ''));
-
-                                                    if ($showPassionReadingDropdown) {
-                                                        $readingHtml .= oflc_update_render_passion_reading_fields_html(
-                                                            $filteredPassionReadingOptions,
-                                                            $formState['selected_passion_reading_ids'] ?? []
-                                                        );
-                                                    }
-
-                                                    if ($showSmallCatechismDropdown) {
-                                                        $readingHtml .= oflc_update_render_small_catechism_fields_html(
-                                                            $formState['selected_small_catechism_labels'] ?? []
-                                                        );
-                                                    }
-                                                }
-
-                                                if ($readingHtml === '') {
-                                                    $readingHtml = '&nbsp;';
-                                                }
-                                            }
-
-                                            echo $readingHtml;
-                                        ?></div>
-                                    </section>
-
-                                    <section class="service-card-panel">
-                                        <div class="service-card-hymns js-update-service-hymns">
-                                            <?php if ($hymnFieldDefinitions !== []): ?>
-                                                <div class="service-card-hymn-instruction">Click "s" to input stanzas for a hymn.</div>
-                                            <?php endif; ?>
-                                            <?php foreach ($hymnFieldDefinitions as $hymnField): ?>
-                                                <?php $hymnIndex = (int) $hymnField['index']; ?>
-                                                <div class="service-card-hymn-row">
-                                                    <input
-                                                        type="text"
-                                                        id="hymn_<?php echo $serviceId; ?>_<?php echo $hymnIndex; ?>"
-                                                        name="hymn_<?php echo $hymnIndex; ?>"
-                                                        value="<?php echo htmlspecialchars($formState['selected_hymns'][$hymnIndex] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
-                                                        placeholder="<?php echo htmlspecialchars((string) $hymnField['label'], ENT_QUOTES, 'UTF-8'); ?>"
-                                                        data-list-id="hymn-options-active"
-                                                        autocomplete="off"
-                                                        class="service-card-hymn-lookup"
-                                                    >
-                                                    <?php $stanzaValue = oflc_update_normalize_stanza_text($formState['selected_hymn_stanzas'][$hymnIndex] ?? ''); ?>
-                                                    <input type="hidden" name="hymn_stanzas[<?php echo $hymnIndex; ?>]" value="<?php echo htmlspecialchars($stanzaValue, ENT_QUOTES, 'UTF-8'); ?>" class="js-hymn-stanza-input">
-                                                    <button
-                                                        type="button"
-                                                        class="service-card-stanza-button js-hymn-stanza-button<?php echo $stanzaValue !== '' ? ' is-set' : ''; ?>"
-                                                        data-row-key="<?php echo htmlspecialchars('base:' . $hymnIndex, ENT_QUOTES, 'UTF-8'); ?>"
-                                                        data-row-label="<?php echo htmlspecialchars((string) $hymnField['label'], ENT_QUOTES, 'UTF-8'); ?>"
-                                                        aria-label="Edit stanzas for <?php echo htmlspecialchars((string) $hymnField['label'], ENT_QUOTES, 'UTF-8'); ?>"
-                                                        title="<?php echo htmlspecialchars($stanzaValue !== '' ? 'Stanzas: ' . $stanzaValue : 'Click to add stanzas', ENT_QUOTES, 'UTF-8'); ?>"
-                                                    >s</button>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    </section>
-
-                                    <section class="service-card-panel">
-                                        <?php if ($originalCopyToPreviousThursday): ?>
-                                            <label class="service-card-label" for="thursday_preacher_<?php echo $serviceId; ?>">Thursday</label>
-                                            <input
-                                                type="text"
-                                                id="thursday_preacher_<?php echo $serviceId; ?>"
-                                                name="thursday_preacher"
-                                                class="service-card-text"
-                                                value="<?php echo htmlspecialchars($formState['thursday_preacher'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
-                                                placeholder="Blank = same as Sunday"
-                                                list="leader-options-active"
-                                                data-active-leader-list-id="leader-options-active"
-                                                data-all-leader-list-id="leader-options-all"
-                                            >
-                                        <?php endif; ?>
-                                        <label class="service-card-label" for="preacher_<?php echo $serviceId; ?>"><?php echo $originalCopyToPreviousThursday ? 'Sunday' : 'Leader'; ?></label>
+                                ob_start();
+                                if ($originalCopyToPreviousThursday):
+                                ?>
+                                    <label class="service-card-label" for="thursday_preacher_<?php echo $serviceId; ?>">Thursday</label>
+                                    <div class="service-card-suggestion-anchor">
                                         <input
                                             type="text"
-                                            id="preacher_<?php echo $serviceId; ?>"
-                                            name="preacher"
+                                            id="thursday_preacher_<?php echo $serviceId; ?>"
+                                            name="thursday_preacher"
                                             class="service-card-text"
-                                            value="<?php echo htmlspecialchars($formState['preacher'], ENT_QUOTES, 'UTF-8'); ?>"
-                                            placeholder="Fenker"
+                                            value="<?php echo htmlspecialchars($formState['thursday_preacher'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                                            placeholder="Blank = same as Sunday"
                                             list="leader-options-active"
                                             data-active-leader-list-id="leader-options-active"
                                             data-all-leader-list-id="leader-options-all"
                                         >
-                                        <div class="update-service-panel-actions">
-                                            <button type="submit" class="add-hymn-button">Update Service</button>
-                                        </div>
-                                    </section>
+                                    </div>
+                                <?php endif; ?>
+                                <label class="service-card-label" for="preacher_<?php echo $serviceId; ?>"><?php echo $originalCopyToPreviousThursday ? 'Sunday' : 'Leader'; ?></label>
+                                <div class="service-card-suggestion-anchor">
+                                    <input
+                                        type="text"
+                                        id="preacher_<?php echo $serviceId; ?>"
+                                        name="preacher"
+                                        class="service-card-text"
+                                        value="<?php echo htmlspecialchars($formState['preacher'], ENT_QUOTES, 'UTF-8'); ?>"
+                                        placeholder="Fenker"
+                                        list="leader-options-active"
+                                        data-active-leader-list-id="leader-options-active"
+                                        data-all-leader-list-id="leader-options-all"
+                                    >
                                 </div>
+                                <div class="update-service-panel-actions">
+                                    <button type="submit" class="add-hymn-button">Update Service</button>
+                                </div>
+                                <?php
+                                $plannerLeadersHtml = ob_get_clean();
+
+                                $plannerHymnsHtml = $hymnFieldDefinitions !== []
+                                    ? '<div class="service-card-hymn-instruction">Click "s" to input stanzas for a hymn.</div>'
+                                    : '';
+
+                                echo oflc_service_planner_render_grid([
+                                    'left_panel' => [
+                                        'date_input_attrs' => [
+                                            'id' => 'service_date_' . $serviceId,
+                                            'name' => 'service_date',
+                                            'class' => 'service-card-text',
+                                            'value' => $formDate,
+                                        ],
+                                        'display_date_html' => $serviceDateDisplay === '&nbsp;'
+                                            ? '&nbsp;'
+                                            : htmlspecialchars($serviceDateDisplay, ENT_QUOTES, 'UTF-8'),
+                                        'observance_hidden_attrs' => [
+                                            'name' => 'observance_id',
+                                            'value' => (string) ($selectedObservanceId > 0 ? $selectedObservanceId : ''),
+                                            'class' => 'js-observance-id-input',
+                                        ],
+                                        'observance_input_attrs' => [
+                                            'id' => 'observance_name_' . $serviceId,
+                                            'name' => 'observance_name',
+                                            'class' => 'service-card-text js-observance-name-input',
+                                            'value' => $selectedObservanceName,
+                                            'placeholder' => 'Liturgical observance',
+                                            'autocomplete' => 'off',
+                                        ],
+                                        'latin_name_html' => $selectedLatinName !== ''
+                                            ? htmlspecialchars($selectedLatinName, ENT_QUOTES, 'UTF-8')
+                                            : '&nbsp;',
+                                        'service_setting_hidden_attrs' => [
+                                            'id' => 'service_setting_' . $serviceId,
+                                            'name' => 'service_setting',
+                                            'value' => $selectedServiceSetting,
+                                            'class' => 'js-service-setting-id-input',
+                                        ],
+                                        'service_setting_input_attrs' => [
+                                            'id' => 'service_setting_name_' . $serviceId,
+                                            'name' => 'service_setting_name',
+                                            'class' => 'service-card-text js-service-setting-input',
+                                            'value' => $selectedServiceSettingName,
+                                            'placeholder' => 'Service type',
+                                            'autocomplete' => 'off',
+                                        ],
+                                        'service_setting_summary_html' => $selectedServiceSettingSummary === '&nbsp;'
+                                            ? '&nbsp;'
+                                            : htmlspecialchars($selectedServiceSettingSummary, ENT_QUOTES, 'UTF-8'),
+                                        'color_line_class' => 'service-card-color-line js-observance-color-line' . ($selectedOptionDetail === null && $selectedObservanceName !== '' ? ' is-hidden' : ''),
+                                        'color_line_html' => $selectedColorDisplay !== ''
+                                            ? htmlspecialchars($selectedColorDisplay, ENT_QUOTES, 'UTF-8')
+                                            : '&nbsp;',
+                                        'new_color_wrap_class' => 'update-service-new-observance-color js-new-observance-color-wrap' . ($selectedOptionDetail === null && $selectedObservanceName !== '' ? ' is-visible' : ''),
+                                        'new_color_select_attrs' => [
+                                            'id' => 'new_observance_color_' . $serviceId,
+                                            'name' => 'new_observance_color',
+                                            'class' => 'service-card-select js-new-observance-color-select',
+                                        ],
+                                        'new_color_options' => $liturgicalColorOptions,
+                                        'selected_color' => (string) ($formState['new_observance_color'] ?? ''),
+                                        'meta_append_html' => $plannerMetaAppendHtml,
+                                    ],
+                                    'readings_panel' => [
+                                        'wrapper_class' => 'service-card-readings js-observance-readings',
+                                        'html' => $readingHtml,
+                                    ],
+                                    'hymns_panel' => [
+                                        'wrapper_class' => 'service-card-hymns js-update-service-hymns',
+                                        'selected_service_id' => $selectedServiceSetting,
+                                        'html' => $plannerHymnsHtml,
+                                    ],
+                                    'leaders_panel_html' => $plannerLeadersHtml,
+                                ]);
+                                ?>
                             </form>
                         </div>
                     <?php endforeach; ?>
@@ -3528,6 +3569,8 @@ include 'includes/header.php';
 </script>
 </div>
 
+<script src="js/service-observance.js"></script>
+<script src="js/service-observance-dropdown.js"></script>
 <script>
 (function () {
     var hymnLookupByKey = <?php echo json_encode($allHymnCatalog['lookup_by_key'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
@@ -3812,6 +3855,7 @@ include 'includes/header.php';
 
     function bindReadingSelectionBehavior(scope, onChange) {
         var labels = scope.querySelectorAll('.service-card-reading-psalm');
+        var radios = scope.querySelectorAll('.service-card-reading-radio');
 
         Array.prototype.forEach.call(labels, function (label) {
             var radio = label.querySelector('.service-card-reading-radio');
@@ -3820,23 +3864,22 @@ include 'includes/header.php';
                 return;
             }
 
-            radio.addEventListener('change', function () {
-                onChange(radio.checked ? radio.value : '');
-            });
-
             label.addEventListener('mousedown', function () {
                 radio.dataset.wasChecked = radio.checked ? '1' : '0';
             });
 
             label.addEventListener('click', function (event) {
+                event.preventDefault();
+
                 if (radio.dataset.wasChecked === '1') {
-                    event.preventDefault();
                     radio.checked = false;
                     onChange('');
                 } else {
-                    window.setTimeout(function () {
-                        onChange(radio.checked ? radio.value : '');
-                    }, 0);
+                    Array.prototype.forEach.call(radios, function (candidate) {
+                        candidate.checked = false;
+                    });
+                    radio.checked = true;
+                    onChange(radio.value || '');
                 }
 
                 delete radio.dataset.wasChecked;
@@ -3894,6 +3937,14 @@ include 'includes/header.php';
         return observanceCatalog.by_id[observanceId];
     }
 
+    function resolveObservanceDetail(name, suggestionLookup) {
+        if (window.oflcObservanceUi && typeof window.oflcObservanceUi.resolveDetail === 'function') {
+            return window.oflcObservanceUi.resolveDetail(name, suggestionLookup || {}, observanceCatalog);
+        }
+
+        return findObservanceDetailByName(name);
+    }
+
     function isAdventMidweekObservanceName(name) {
         var normalizedName = String(name || '').trim().toLowerCase();
 
@@ -3923,6 +3974,33 @@ include 'includes/header.php';
         }
 
         return ((year - 2025) % 4 + 4) % 4 + 1;
+    }
+
+    function getReadingSetDefaultId(readingSets) {
+        var serviceDateValue = String(serviceDateInput && serviceDateInput.value ? serviceDateInput.value : '').trim();
+        var normalizedReadingSets = Array.prototype.filter.call(readingSets || [], function (readingSet) {
+            return !!(readingSet && readingSet.id);
+        });
+        var year;
+
+        if (normalizedReadingSets.length === 0) {
+            return '';
+        }
+
+        if (normalizedReadingSets.length === 1) {
+            return String(normalizedReadingSets[0].id || '');
+        }
+
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDateValue)) {
+            return '';
+        }
+
+        year = parseInt(serviceDateValue.slice(0, 4), 10);
+        if (!Number.isFinite(year)) {
+            return '';
+        }
+
+        return String(normalizedReadingSets[year % 2 === 0 ? 1 : 0].id || '');
     }
 
     function initializeUpdateServiceForm(form) {
@@ -3955,6 +4033,8 @@ include 'includes/header.php';
         var hymnRowOrderInput = form.querySelector('.js-hymn-row-order-input');
         var leaderInputs = form.querySelectorAll('input[name="preacher"], input[name="thursday_preacher"]');
         var dateObservanceSuggestions = [];
+        var observanceSuggestionLookup = {};
+        var observanceDropdown = null;
         var smallCatechismOptions = [];
         var passionReadingOptions = [];
         var serviceSettingCatalog = { by_id: {}, name_lookup: {} };
@@ -3985,6 +4065,38 @@ include 'includes/header.php';
         } catch (error) {
             dateObservanceSuggestions = [];
         }
+        try {
+            observanceSuggestionLookup = JSON.parse(form.getAttribute('data-observance-suggestion-lookup') || '{}');
+        } catch (error) {
+            observanceSuggestionLookup = {};
+        }
+        observanceDropdown = window.oflcCreateObservanceDropdown({
+            input: observanceNameInput,
+            hiddenInput: observanceIdInput,
+            list: observanceSuggestionList,
+            serviceDateInput: serviceDateInput,
+            dateSuggestions: dateObservanceSuggestions,
+            allSuggestions: allObservanceSuggestions,
+            requireDate: true,
+            resolveDetail: resolveObservanceDetail,
+            onInput: function () {
+                updateObservanceDetails(true);
+            },
+            onChange: function () {
+                updateObservanceDetails(true);
+            },
+            onSelect: function (selection) {
+                if (returnSearchInput && searchInput) {
+                    returnSearchInput.value = String(searchInput.value || '');
+                }
+
+                requestUpdateServicePreview(form, true, {
+                    service_date: selection.serviceDate,
+                    observance_name: selection.name,
+                    observance_id: selection.observanceId
+                });
+            }
+        });
 
         try {
             smallCatechismOptions = JSON.parse(form.getAttribute('data-small-catechism-options') || '[]');
@@ -4262,80 +4374,87 @@ include 'includes/header.php';
         }
 
         function getObservanceSuggestionSource(preferDateSuggestions) {
-            var query = String(observanceNameInput ? observanceNameInput.value : '').trim().toLowerCase();
-            var source = dateObservanceSuggestions;
-
-            if (source.length === 0) {
-                source = allObservanceSuggestions;
-            } else if (!preferDateSuggestions && query !== '') {
-                source = Array.prototype.some.call(dateObservanceSuggestions, function (name) {
-                    return String(name || '').toLowerCase().indexOf(query) !== -1;
-                }) ? dateObservanceSuggestions : allObservanceSuggestions;
-            }
-
-            if (preferDateSuggestions && query !== '') {
-                source = Array.prototype.filter.call(source, function (name) {
-                    return String(name || '').trim().toLowerCase() !== query;
-                });
-            }
-
-            if (!preferDateSuggestions && query !== '') {
-                source = Array.prototype.filter.call(source, function (name) {
-                    return String(name || '').toLowerCase().indexOf(query) !== -1;
-                });
-            }
-
-            return Array.prototype.filter.call(source, function (name, index) {
-                return String(name || '').trim() !== '' && source.indexOf(name) === index;
-            });
+            return observanceDropdown ? observanceDropdown.getSource(preferDateSuggestions) : [];
         }
 
         function renderObservanceSuggestionOptions(preferDateSuggestions) {
-            var source = getObservanceSuggestionSource(preferDateSuggestions);
+            if (observanceDropdown) {
+                observanceDropdown.render(preferDateSuggestions);
+            }
+        }
 
-            observanceSuggestionList.innerHTML = '';
-            Array.prototype.forEach.call(source, function (name) {
-                var button = document.createElement('button');
-
-                button.type = 'button';
-                button.className = 'service-card-suggestion-item';
-                button.textContent = name;
-                button.addEventListener('mousedown', function (event) {
-                    event.preventDefault();
-                });
-                button.addEventListener('click', function () {
-                    if (observanceNameInput) {
-                        observanceNameInput.value = name;
-                    }
-                    updateObservanceDetails(true);
-                    hideObservanceSuggestionOptions();
-                    if (observanceNameInput) {
-                        observanceNameInput.focus();
-                        if (typeof observanceNameInput.setSelectionRange === 'function') {
-                            observanceNameInput.setSelectionRange(observanceNameInput.value.length, observanceNameInput.value.length);
-                        }
-                    }
-                });
-
-                observanceSuggestionList.appendChild(button);
-            });
-
-            observanceSuggestionList.hidden = source.length === 0;
-            observanceSuggestionList.classList.toggle('is-visible', source.length > 0);
+        function bindObservanceSuggestionList() {
+            if (observanceDropdown) {
+                observanceDropdown.bind();
+            }
         }
 
         function showObservanceSuggestionOptions(preferDateSuggestions) {
-            if (!observanceNameInput) {
-                return;
+            if (observanceDropdown) {
+                observanceDropdown.show(preferDateSuggestions);
             }
-
-            renderObservanceSuggestionOptions(!!preferDateSuggestions);
         }
 
         function hideObservanceSuggestionOptions() {
-            observanceSuggestionList.hidden = true;
-            observanceSuggestionList.classList.remove('is-visible');
-            observanceSuggestionList.innerHTML = '';
+            if (observanceDropdown) {
+                observanceDropdown.hide();
+            }
+        }
+
+        function applyObservanceDetail(observanceName, detail, resetReadingSelection) {
+            if (resetReadingSelection) {
+                captureReadingDraftState();
+                selectedReadingSetId = '';
+                form.setAttribute('data-selected-reading-set-id', '');
+                selectedNewReadingSet = '';
+                form.setAttribute('data-selected-new-reading-set', '');
+                readingDraftState = cloneReadingDrafts([]);
+                selectedSmallCatechismLabels = [''];
+                selectedPassionReadingIds = [];
+            }
+
+            if (observanceIdInput) {
+                observanceIdInput.value = detail && detail.id ? String(detail.id) : '';
+            }
+
+            if (!detail) {
+                if (latinName) {
+                    latinName.innerHTML = '&nbsp;';
+                }
+                if (colorLine) {
+                    colorLine.innerHTML = '&nbsp;';
+                    colorLine.classList.toggle('is-hidden', observanceName !== '');
+                }
+                if (observanceName === '') {
+                    newObservanceColorWrap.classList.remove('is-visible');
+                    selectedSmallCatechismLabels = [];
+                    selectedPassionReadingIds = [];
+                    renderBlankReadingsPane();
+                } else {
+                    newObservanceColorWrap.classList.add('is-visible');
+                    renderReadingsPane([]);
+                }
+                applyFormColorClass('service-card-color-dark');
+                return;
+            }
+
+            newObservanceColorWrap.classList.remove('is-visible');
+            if (latinName) {
+                latinName.textContent = detail.latin_name !== '' ? detail.latin_name : ' ';
+            }
+            if (colorLine) {
+                colorLine.classList.remove('is-hidden');
+                colorLine.textContent = detail.color_display !== '' ? detail.color_display : ' ';
+            }
+            renderReadingsPane(detail.reading_sets || []);
+            applyFormColorClass(detail.color_class || 'service-card-color-dark');
+        }
+
+        function chooseObservanceSuggestion(name, observanceId) {
+            if (observanceDropdown) {
+                observanceDropdown.choose(name);
+                return;
+            }
         }
 
         function resolveHymnId(value) {
@@ -5384,7 +5503,7 @@ include 'includes/header.php';
         }
 
         function rerenderCurrentReadingsPane() {
-            var detail = findObservanceDetailByName(observanceNameInput ? observanceNameInput.value : '');
+            var detail = resolveObservanceDetail(observanceNameInput ? observanceNameInput.value : '', observanceSuggestionLookup);
 
             if (!detail) {
                 if (String(observanceNameInput && observanceNameInput.value ? observanceNameInput.value : '').trim() === '') {
@@ -5459,12 +5578,21 @@ include 'includes/header.php';
             var html = '';
             var hasSelectedReadingSet = false;
             var hasRenderedReadingSet = false;
+            var defaultReadingSetId = '';
             var readingEditorDraft;
             var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
             var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName);
 
             if (!readingsPane) {
                 return;
+            }
+
+            if (selectedReadingSetId === '') {
+                defaultReadingSetId = getReadingSetDefaultId(readingSets);
+                if (defaultReadingSetId !== '') {
+                    selectedReadingSetId = defaultReadingSetId;
+                    form.setAttribute('data-selected-reading-set-id', selectedReadingSetId);
+                }
             }
 
             Array.prototype.forEach.call(readingSets || [], function (readingSet, index) {
@@ -5538,55 +5666,20 @@ include 'includes/header.php';
 
         function updateObservanceDetails(resetReadingSelection) {
             var observanceName = observanceNameInput ? observanceNameInput.value : '';
-            var detail = findObservanceDetailByName(observanceName);
+            var observanceId = observanceIdInput ? String(observanceIdInput.value || '').trim() : '';
+            var detail = null;
 
-            if (resetReadingSelection) {
-                captureReadingDraftState();
-                selectedReadingSetId = '';
-                form.setAttribute('data-selected-reading-set-id', '');
-                selectedNewReadingSet = '';
-                form.setAttribute('data-selected-new-reading-set', '');
+            if (observanceId !== '' && observanceCatalog.by_id && observanceCatalog.by_id[observanceId]) {
+                detail = observanceCatalog.by_id[observanceId];
+            }
+            if (!detail) {
+                detail = resolveObservanceDetail(observanceName, observanceSuggestionLookup);
             }
 
             if (observanceSuggestionList.classList.contains('is-visible')) {
                 renderObservanceSuggestionOptions(false);
             }
-
-            if (observanceIdInput) {
-                observanceIdInput.value = detail && detail.id ? String(detail.id) : '';
-            }
-
-            if (!detail) {
-                if (latinName) {
-                    latinName.innerHTML = '&nbsp;';
-                }
-                if (colorLine) {
-                    colorLine.innerHTML = '&nbsp;';
-                    colorLine.classList.toggle('is-hidden', observanceName !== '');
-                }
-                if (observanceName === '') {
-                    newObservanceColorWrap.classList.remove('is-visible');
-                    selectedSmallCatechismLabels = [];
-                    selectedPassionReadingId = '';
-                    renderBlankReadingsPane();
-                } else {
-                    newObservanceColorWrap.classList.add('is-visible');
-                    renderReadingsPane([]);
-                }
-                applyFormColorClass('service-card-color-dark');
-                return;
-            }
-
-            newObservanceColorWrap.classList.remove('is-visible');
-            if (latinName) {
-                latinName.textContent = detail.latin_name !== '' ? detail.latin_name : ' ';
-            }
-            if (colorLine) {
-                colorLine.classList.remove('is-hidden');
-                colorLine.textContent = detail.color_display !== '' ? detail.color_display : ' ';
-            }
-            renderReadingsPane(detail.reading_sets || []);
-            applyFormColorClass(detail.color_class || 'service-card-color-dark');
+            applyObservanceDetail(String(observanceName || '').trim(), detail, resetReadingSelection);
         }
 
         function updateDisplayDate() {
@@ -5665,12 +5758,7 @@ include 'includes/header.php';
 
         hideServiceSettingSuggestionOptions();
         hideObservanceSuggestionOptions();
-        renderHymnPane(serviceSettingIdInput.value || '');
-        updateSettingSummary();
-        updateObservanceDetails(false);
-        updateDisplayDate();
-        syncLookupSources();
-        syncPreviousThursdayState();
+        bindObservanceSuggestionList();
 
         serviceSettingInput.addEventListener('input', function () {
             captureHymnState();
@@ -5694,25 +5782,6 @@ include 'includes/header.php';
         serviceSettingInput.addEventListener('blur', function () {
             window.setTimeout(hideServiceSettingSuggestionOptions, 120);
         });
-
-        if (observanceNameInput) {
-            observanceNameInput.addEventListener('input', function () {
-                updateObservanceDetails(true);
-                showObservanceSuggestionOptions(false);
-            });
-            observanceNameInput.addEventListener('change', function () {
-                updateObservanceDetails(true);
-            });
-            observanceNameInput.addEventListener('focus', function () {
-                showObservanceSuggestionOptions(true);
-            });
-            observanceNameInput.addEventListener('click', function () {
-                showObservanceSuggestionOptions(true);
-            });
-            observanceNameInput.addEventListener('blur', function () {
-                window.setTimeout(hideObservanceSuggestionOptions, 120);
-            });
-        }
 
         if (newObservanceColorSelect) {
             newObservanceColorSelect.addEventListener('change', function () {
@@ -5784,6 +5853,19 @@ include 'includes/header.php';
                 showSeparateThursdayAlert();
             }
         });
+
+        try {
+            renderHymnPane(serviceSettingIdInput.value || '');
+            updateSettingSummary();
+            updateObservanceDetails(false);
+            updateDisplayDate();
+            syncLookupSources();
+            syncPreviousThursdayState();
+        } catch (error) {
+            // Keep the basic form interactions alive even if one of the richer
+            // render passes fails during initialization.
+            updateDisplayDate();
+        }
     }
 
     function buildFilterUrl(form) {
@@ -5863,6 +5945,86 @@ include 'includes/header.php';
             }
 
             window.location.href = url;
+        });
+    }
+
+    function requestUpdateServicePreview(form, resetReadings, overrides) {
+        var formData;
+        var previewFlag;
+        var resetReadingsFlag;
+        var actionUrl;
+        var returnSearchInput;
+
+        if (!form) {
+            return;
+        }
+
+        returnSearchInput = form.querySelector('.js-return-search-input');
+
+        if (returnSearchInput && searchInput) {
+            returnSearchInput.value = String(searchInput.value || '');
+        }
+
+        previewFlag = form.querySelector('.js-preview-update-service-flag');
+        resetReadingsFlag = form.querySelector('.js-preview-reset-readings-flag');
+
+        if (previewFlag) {
+            previewFlag.value = '1';
+        }
+        if (resetReadingsFlag) {
+            resetReadingsFlag.value = resetReadings ? '1' : '';
+        }
+
+        formData = new FormData(form);
+        formData.delete('update_service');
+        Object.keys(overrides || {}).forEach(function (key) {
+            formData.set(key, overrides[key]);
+        });
+        actionUrl = form.getAttribute('action') || 'update-service.php';
+
+        if (previewFlag) {
+            previewFlag.value = '';
+        }
+        if (resetReadingsFlag) {
+            resetReadingsFlag.value = '';
+        }
+
+        if (requestController) {
+            requestController.abort();
+        }
+
+        requestController = new AbortController();
+
+        fetch(actionUrl, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            signal: requestController.signal
+        }).then(function (response) {
+            if (!response.ok) {
+                throw new Error('Request failed');
+            }
+
+            return response.text();
+        }).then(function (html) {
+            syncUpdateServiceRoot(html, getCleanUpdateServiceUrl(), {
+                preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
+                preserveSearchFocus: false
+            });
+        }).catch(function (error) {
+            if (error && error.name === 'AbortError') {
+                return;
+            }
+
+            if (previewFlag) {
+                previewFlag.value = '1';
+            }
+            if (resetReadingsFlag) {
+                resetReadingsFlag.value = resetReadings ? '1' : '';
+            }
+            form.submit();
         });
     }
 

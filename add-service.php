@@ -7,6 +7,7 @@ $page_title = 'Add a Service';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
+require_once __DIR__ . '/includes/service_observance_suggestions.php';
 require_once __DIR__ . '/includes/liturgical_colors.php';
 require_once __DIR__ . '/includes/hymn_layout.php';
 
@@ -880,22 +881,6 @@ function oflc_get_default_selected_reading_set_id(?array $observance_detail, ?Da
     return (int) ($reading_sets[$default_index]['id'] ?? 0);
 }
 
-function oflc_build_date_observance_suggestions(array $service_option_choices): array
-{
-    $names = [];
-
-    foreach ($service_option_choices as $choice) {
-        $name = trim((string) ($choice['suggestion_label'] ?? $choice['label'] ?? ''));
-        if ($name === '') {
-            continue;
-        }
-
-        $names[$name] = $name;
-    }
-
-    return array_values($names);
-}
-
 function oflc_fetch_hymn_suggestions(PDO $pdo): array
 {
     $stmt = $pdo->query(
@@ -1459,9 +1444,11 @@ $small_catechism_lookup = [];
 $passion_reading_by_id = [];
 $logic_key_name_map = [];
 $date_observance_suggestions = [];
+$date_observance_suggestion_lookup = [];
 $leaders_by_last_name = [];
 $leaders_by_normalized_last_name = [];
 $active_observance_details = oflc_service_fetch_active_observance_details($pdo);
+$active_observance_details_by_logic_key = oflc_service_index_observance_details_by_logic_key($active_observance_details);
 $liturgical_color_options = oflc_get_liturgical_color_options();
 $observance_catalog_payload = [
     'by_id' => [],
@@ -1677,7 +1664,11 @@ if ($selected_date !== '') {
         uasort($feast_service_option_choices, $service_option_sort);
         $service_option_choices = $sunday_service_option_choices + $feast_service_option_choices;
 
-        $date_observance_suggestions = oflc_build_date_observance_suggestions($service_option_choices);
+        $date_observance_suggestions = oflc_service_build_date_observance_suggestions($service_option_choices);
+        $date_observance_suggestion_lookup = oflc_service_build_observance_suggestion_lookup(
+            $service_option_choices,
+            $active_observance_details_by_logic_key
+        );
     }
 
     if (ctype_digit($selected_observance_id)) {
@@ -2235,6 +2226,7 @@ include 'includes/header.php';
         data-service-setting-catalog="<?php echo htmlspecialchars(json_encode($service_setting_catalog_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-observance-catalog="<?php echo htmlspecialchars(json_encode($observance_catalog_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-date-observance-suggestions="<?php echo htmlspecialchars(json_encode(array_values($date_observance_suggestions), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
+        data-observance-suggestion-lookup="<?php echo htmlspecialchars(json_encode($date_observance_suggestion_lookup, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>"
         data-initial-suggested-date="<?php echo htmlspecialchars($suggested_service_date, ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-reading-set-id="<?php echo htmlspecialchars((string) $selected_reading_set_id, ENT_QUOTES, 'UTF-8'); ?>"
         data-selected-new-reading-set="<?php echo htmlspecialchars((string) $selected_new_reading_set, ENT_QUOTES, 'UTF-8'); ?>"
@@ -2584,6 +2576,8 @@ include 'includes/header.php';
 <?php endif; ?>
 </div>
 
+<script src="js/service-observance.js"></script>
+<script src="js/service-observance-dropdown.js"></script>
 <script>
 function oflcResetReadingSelection(form) {
     var radios = form.querySelectorAll('.service-card-reading-radio');
@@ -2736,6 +2730,8 @@ window.oflcInitializePlannerUI = function (root) {
     var matchingHymnFillTemplates = [];
     var dateObservanceSuggestions = [];
     var allObservanceSuggestions = [];
+    var observanceSuggestionLookup = {};
+    var observanceDropdown = null;
     var selectedReadingSetId = form ? (form.getAttribute('data-selected-reading-set-id') || '') : '';
     var selectedNewReadingSet = form ? (form.getAttribute('data-selected-new-reading-set') || '') : '';
     var smallCatechismOptions = [];
@@ -2805,6 +2801,14 @@ window.oflcInitializePlannerUI = function (root) {
         }
 
         return observanceCatalog.by_id[observanceId];
+    }
+
+    function resolveObservanceDetail(name) {
+        if (window.oflcObservanceUi && typeof window.oflcObservanceUi.resolveDetail === 'function') {
+            return window.oflcObservanceUi.resolveDetail(name, observanceSuggestionLookup, observanceCatalog);
+        }
+
+        return findObservanceDetailByName(name);
     }
 
     function findServiceSettingDetailByName(name) {
@@ -2981,7 +2985,7 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function rerenderCurrentReadingsPane() {
-        var detail = findObservanceDetailByName(observanceInput.value);
+        var detail = resolveObservanceDetail(observanceInput.value);
 
         if (!detail) {
             if (String(observanceInput.value || '').trim() === '') {
@@ -2996,107 +3000,37 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function getObservanceSuggestionSource(preferDateSuggestions) {
-        var query = String(observanceInput.value || '').trim().toLowerCase();
-        var source = dateObservanceSuggestions;
-
-        if (source.length === 0) {
-            source = allObservanceSuggestions;
-        } else if (!preferDateSuggestions && query !== '') {
-            source = Array.prototype.some.call(dateObservanceSuggestions, function (name) {
-                return String(name || '').toLowerCase().indexOf(query) !== -1;
-            }) ? dateObservanceSuggestions : allObservanceSuggestions;
-        }
-
-        if (preferDateSuggestions && query !== '') {
-            source = Array.prototype.filter.call(source, function (name) {
-                return String(name || '').trim().toLowerCase() !== query;
-            });
-        }
-
-        if (!preferDateSuggestions && query !== '') {
-            source = Array.prototype.filter.call(source, function (name) {
-                return String(name || '').toLowerCase().indexOf(query) !== -1;
-            });
-        }
-
-        return Array.prototype.filter.call(source, function (name, index) {
-            return String(name || '').trim() !== '' && source.indexOf(name) === index;
-        });
+        return observanceDropdown ? observanceDropdown.getSource(preferDateSuggestions) : [];
     }
 
     function renderObservanceSuggestionOptions(preferDateSuggestions) {
-        var source = getObservanceSuggestionSource(preferDateSuggestions);
-
-        observanceSuggestionList.innerHTML = '';
-        Array.prototype.forEach.call(source, function (name) {
-            var button = document.createElement('button');
-
-            button.type = 'button';
-            button.className = 'service-card-suggestion-item';
-            button.textContent = name;
-            button.setAttribute('data-observance-suggestion', name);
-
-            observanceSuggestionList.appendChild(button);
-        });
-
-        observanceSuggestionList.hidden = source.length === 0;
-        observanceSuggestionList.classList.toggle('is-visible', source.length > 0);
+        if (observanceDropdown) {
+            observanceDropdown.render(preferDateSuggestions);
+        }
     }
 
     function showObservanceSuggestionOptions(preferDateSuggestions) {
-        if (!serviceDateInput || String(serviceDateInput.value || '').trim() === '') {
-            hideObservanceSuggestionOptions();
-            return;
+        if (observanceDropdown) {
+            observanceDropdown.show(preferDateSuggestions);
         }
-
-        renderObservanceSuggestionOptions(!!preferDateSuggestions);
     }
 
     function hideObservanceSuggestionOptions() {
-        if (!observanceSuggestionList) {
-            return;
+        if (observanceDropdown) {
+            observanceDropdown.hide();
         }
-
-        observanceSuggestionList.hidden = true;
-        observanceSuggestionList.classList.remove('is-visible');
-        observanceSuggestionList.innerHTML = '';
     }
 
     function chooseObservanceSuggestion(name) {
-        var selectedDate = String(serviceDateInput && serviceDateInput.value ? serviceDateInput.value : '').trim();
-        var detail = findObservanceDetailByName(name);
-
-        observanceInput.value = name;
-        observanceIdInput.value = detail && detail.id ? String(detail.id) : '';
-        hideObservanceSuggestionOptions();
-        if (previewServiceDateInput) {
-            previewServiceDateInput.value = selectedDate;
+        if (observanceDropdown) {
+            observanceDropdown.choose(name);
         }
-        oflcSubmitPlannerRefresh(form);
     }
 
     function bindObservanceSuggestionList() {
-        if (!observanceSuggestionList || observanceSuggestionList.dataset.bound === '1') {
-            return;
+        if (observanceDropdown) {
+            observanceDropdown.bind();
         }
-
-        observanceSuggestionList.dataset.bound = '1';
-        observanceSuggestionList.addEventListener('mousedown', function (event) {
-            var button = event.target.closest('[data-observance-suggestion]');
-            if (!button) {
-                return;
-            }
-
-            event.preventDefault();
-            event.stopPropagation();
-            chooseObservanceSuggestion(button.getAttribute('data-observance-suggestion') || '');
-        });
-        observanceSuggestionList.addEventListener('click', function (event) {
-            if (event.target.closest('[data-observance-suggestion]')) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-        });
     }
 
     function getServiceSettingSuggestionSource(preferAllSuggestions) {
@@ -3327,6 +3261,38 @@ window.oflcInitializePlannerUI = function (root) {
     } catch (error) {
         dateObservanceSuggestions = [];
     }
+    try {
+        observanceSuggestionLookup = JSON.parse(form.getAttribute('data-observance-suggestion-lookup') || '{}');
+    } catch (error) {
+        observanceSuggestionLookup = {};
+    }
+    observanceDropdown = window.oflcCreateObservanceDropdown({
+        input: observanceInput,
+        hiddenInput: observanceIdInput,
+        list: observanceSuggestionList,
+        serviceDateInput: serviceDateInput,
+        dateSuggestions: dateObservanceSuggestions,
+        allSuggestions: allObservanceSuggestions,
+        requireDate: true,
+        resolveDetail: resolveObservanceDetail,
+        onInput: function () {
+            updateObservanceDetails(true);
+        },
+        onChange: function () {
+            updateObservanceDetails(true);
+        },
+        onSelect: function (selection) {
+            if (previewServiceDateInput) {
+                previewServiceDateInput.value = selection.serviceDate;
+            }
+            oflcSubmitPlannerPreview(form, true, {
+                service_date: selection.serviceDate,
+                preview_service_date: selection.serviceDate,
+                observance_name: selection.name,
+                observance_id: selection.observanceId
+            });
+        }
+    });
 
     allObservanceSuggestions = Array.prototype.map.call(Object.keys(observanceCatalog.by_id || {}), function (key) {
         return observanceCatalog.by_id[key] && observanceCatalog.by_id[key].name ? observanceCatalog.by_id[key].name : '';
@@ -4402,7 +4368,7 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function populateFillHymnsOptions() {
-        var matchingObservance = findObservanceDetailByName(observanceInput.value);
+        var matchingObservance = resolveObservanceDetail(observanceInput.value);
         var serviceSettingDetail = findServiceSettingDetailByName(serviceSettingInput.value);
         var currentSelectedId = String(fillHymnsIdInput && fillHymnsIdInput.value ? fillHymnsIdInput.value : '');
         var observanceId = matchingObservance && matchingObservance.id ? parseInt(matchingObservance.id, 10) : 0;
@@ -4936,7 +4902,7 @@ window.oflcInitializePlannerUI = function (root) {
 
     function updateObservanceDetails(resetReadingSelection) {
         var observanceName = String(observanceInput.value || '').trim();
-        var detail = findObservanceDetailByName(observanceInput.value);
+        var detail = resolveObservanceDetail(observanceInput.value);
 
         captureReadingDraftState();
         if (observanceSuggestionList.classList.contains('is-visible')) {
@@ -5007,22 +4973,6 @@ window.oflcInitializePlannerUI = function (root) {
     });
     serviceSettingInput.addEventListener('blur', function () {
         window.setTimeout(hideServiceSettingSuggestionOptions, 120);
-    });
-    observanceInput.addEventListener('input', function () {
-        updateObservanceDetails(true);
-        showObservanceSuggestionOptions(false);
-    });
-    observanceInput.addEventListener('change', function () {
-        updateObservanceDetails(true);
-    });
-    observanceInput.addEventListener('focus', function () {
-        showObservanceSuggestionOptions(true);
-    });
-    observanceInput.addEventListener('click', function () {
-        showObservanceSuggestionOptions(true);
-    });
-    observanceInput.addEventListener('blur', function () {
-        window.setTimeout(hideObservanceSuggestionOptions, 120);
     });
     if (copyServiceToggle) {
         copyServiceToggle.addEventListener('change', function () {

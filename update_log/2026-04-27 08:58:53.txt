@@ -1,0 +1,63 @@
+# Update Log
+
+Timestamp: 2026-04-27 08:58:53
+
+## Summary
+
+This log summarizes the UI, behavior, and refactor work completed today on `add-service.php`, `update-service.php`, shared planner helpers, and shared observance/hymn support files.
+
+## Changes Completed
+
+### Hymn layout and slot behavior
+
+- Reworked hymn slot rendering and save normalization for Divine Service and Matins/Vespers so fixed slots retain their intended labels and positions.
+- Added shared hymn layout logic in `includes/hymn_layout.php` so `add-service.php` and `update-service.php` use the same slot rules.
+- Updated drag-and-drop behavior so fixed-slot hymns can be moved into other fixed slots by swapping assignment, while `Other` hymns remain `Other`.
+- Updated `Fill Hymns` in `add-service.php` so copied hymns preserve slot use and order using the same slot logic as the update flow.
+
+### Update-service search and state behavior
+
+- Changed `update-service` search so clicking the search box clears active filters and reloads the full service list.
+- Kept focus in the search field after filter clearing so typing can continue without a second click.
+- Preserved search state when saving a service so `Update Service` no longer clears the current search and keeps the updated service expanded.
+
+### Add-service date and dropdown fixes
+
+- Fixed the `add-service` date picker so selected dates no longer revert to the suggested Sunday.
+- Restored the custom CSS overlay dropdowns for liturgical observance and service type on `add-service`.
+- Fixed liturgical observance selection so choosing an observance updates the planner without requiring a later date change.
+- Fixed service-type dropdown selection so the service selection updates the hymn area correctly.
+- Fixed left-column dropdown selection behavior so observance and service suggestions commit properly.
+
+### Shared observance helpers
+
+- Moved shared observance suggestion lookup logic into `includes/service_observance_suggestions.php`.
+- Added shared browser-side observance resolver logic in `js/service-observance.js`.
+- Added shared observance dropdown behavior in `js/service-observance-dropdown.js`.
+- Wired both `add-service.php` and `update-service.php` to use the shared observance dropdown helper.
+
+### Update-service rebuild and observance work
+
+- Began rebuilding `update-service.php` around the same planner form structure as `add-service.php`.
+- Added shared planner form rendering in `includes/service_planner_form.php`.
+- Switched `update-service` to render its planner body through the shared planner-grid helper.
+- Reworked `update-service` liturgical observance selection multiple times to isolate the failure path.
+- Fixed the main `update-service` observance JS scope bug where `resolveObservanceDetail(...)` tried to read `observanceSuggestionLookup` outside the form scope.
+- Fixed the restored AJAX preview path so it reads the form’s own hidden `return_search` field instead of referencing an out-of-scope variable.
+- Restored in-place preview refresh for observance selection so changing liturgical observance updates without full-page flashing.
+
+## Files Touched Today
+
+- `add-service.php`
+- `update-service.php`
+- `includes/hymn_layout.php`
+- `includes/service_planner_form.php`
+- `includes/service_observance_suggestions.php`
+- `js/service-observance.js`
+- `js/service-observance-dropdown.js`
+- `css/services.css`
+
+## Verification
+
+- `php -l update-service.php` passes after the final observance preview fix.
+- Multiple intermediate `php -l` checks were also run on `add-service.php` and shared PHP include files during the refactor and bug-fix work.
