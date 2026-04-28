@@ -703,18 +703,37 @@
 		});
 	}
 
+	function handleUpdateFormSubmit(event) {
+		var form = event.target || event.srcElement;
+
+		if (!form || form.id !== 'update-hymn-form') {
+			return;
+		}
+
+		if (event.preventDefault) {
+			event.preventDefault();
+		} else {
+			event.returnValue = false;
+		}
+
+		submitUpdateForm();
+	}
+
 	function init() {
 		document.addEventListener('click', handleDocumentClick, false);
 		document.addEventListener('input', handleDocumentInput, false);
 		document.addEventListener('change', handleDocumentChange, false);
 		document.addEventListener('submit', handleAddFormSubmit, false);
+		document.addEventListener('submit', handleUpdateFormSubmit, false);
 		hideHymnListArea();
 	}
 
 	window.loadHymns = loadHymns;
 	window.showAddForm = showAddForm;
+	window.showUpdateForm = showUpdateForm;
 	window.showDeleteForm = showDeleteForm;
 	window.clearHymnList = clearHymnList;
+	window.submitUpdateForm = submitUpdateForm;
 	window.submitDeleteForm = submitDeleteForm;
 	window.deleteSelectedHymn = deleteSelectedHymn;
 

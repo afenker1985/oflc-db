@@ -532,18 +532,30 @@
 		}
 	}
 
+	async function handleUpdateFormSubmit(event) {
+		if (!event.target.matches('#update-hymn-form')) {
+			return;
+		}
+
+		event.preventDefault();
+		await submitUpdateForm();
+	}
+
 	function init() {
 		document.addEventListener('click', handleDocumentClick);
 		document.addEventListener('input', handleDocumentInput);
 		document.addEventListener('change', handleDocumentChange);
 		document.addEventListener('submit', handleAddFormSubmit);
+		document.addEventListener('submit', handleUpdateFormSubmit);
 		hideHymnListArea();
 	}
 
 	window.loadHymns = loadHymns;
 	window.showAddForm = showAddForm;
+	window.showUpdateForm = showUpdateForm;
 	window.showDeleteForm = showDeleteForm;
 	window.clearHymnList = clearHymnList;
+	window.submitUpdateForm = submitUpdateForm;
 	window.submitDeleteForm = submitDeleteForm;
 	window.deleteSelectedHymn = deleteSelectedHymn;
 

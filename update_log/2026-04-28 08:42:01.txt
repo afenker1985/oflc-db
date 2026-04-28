@@ -1,0 +1,29 @@
+Timestamp: 2026-04-28 08:42:01
+Title: Final service DB helper sweep
+
+Summary:
+- Checked add-service.php, update-service.php, remove-service.php, schedule.php, and print-schedule.php for remaining local DB read/write functions and raw SQL.
+- Moved the remaining embedded read work into includes/db/service-db-read.php.
+- Moved the remaining embedded write work into includes/db/service-db-write.php.
+- Left page-specific validation, display formatting, grouping, redirects, transactions, and form flow in the original pages.
+
+Updated read helpers:
+- Added helpers for service conflict checks, active service row lookups, update-service service lists, update-service hymn rows, remove-service service lists, remove-service hymn rows, and update-service observance option payloads.
+
+Updated write helpers:
+- Added helpers for inserting service rows, inserting hymn usage rows, updating service rows, deactivating related rows, finding next hymn usage versions, restoring services, deactivating services, and deleting services.
+
+Verification:
+- Confirmed the five service-facing pages no longer contain local SQL, local PDO helper functions, or direct prepare/query/fetch calls.
+- php -l includes/db/service-db-read.php
+- php -l includes/db/service-db-write.php
+- php -l add-service.php
+- php -l update-service.php
+- php -l remove-service.php
+- php -l schedule.php
+- php -l print-schedule.php
+- PHP GET render check for add-service.php
+- PHP GET render check for update-service.php
+- PHP GET render check for remove-service.php
+- PHP GET render check for schedule.php
+- PHP GET render check for print-schedule.php

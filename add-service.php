@@ -5,6 +5,8 @@ session_start();
 
 $page_title = 'Add a Service';
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/db/service-db-read.php';
+require_once __DIR__ . '/includes/db/service-db-write.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
 require_once __DIR__ . '/includes/service_observance_suggestions.php';
@@ -70,48 +72,6 @@ function oflc_request_stanza_map(array $request_data, string $key): array
     return $map;
 }
 
-function oflc_get_suggested_service_date(PDO $pdo): string
-{
-    $latest_service_date = $pdo
-        ->query('SELECT MAX(service_date) FROM service_db WHERE is_active = 1')
-        ->fetchColumn();
-
-    $base_date = DateTimeImmutable::createFromFormat('Y-m-d', (string) $latest_service_date);
-    if (!$base_date instanceof DateTimeImmutable) {
-        $base_date = new DateTimeImmutable('today');
-    }
-
-    if ($base_date->format('w') === '0') {
-        return $base_date->modify('+7 days')->format('Y-m-d');
-    }
-
-    return $base_date->modify('next sunday')->format('Y-m-d');
-}
-
-function oflc_fetch_recently_celebrated_observance_ids(PDO $pdo, DateTimeImmutable $selectedDate): array
-{
-    $stmt = $pdo->prepare(
-        'SELECT liturgical_calendar_id
-         FROM service_db
-         WHERE is_active = 1
-           AND liturgical_calendar_id IS NOT NULL
-           AND service_date < ?
-         ORDER BY service_date DESC, id DESC
-         LIMIT 2'
-    );
-    $stmt->execute([$selectedDate->format('Y-m-d')]);
-
-    $ids = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
-        $id = (int) $id;
-        if ($id > 0) {
-            $ids[$id] = true;
-        }
-    }
-
-    return $ids;
-}
-
 function oflc_get_passion_cycle_year_for_service_date(?DateTimeImmutable $serviceDate): ?int
 {
     if (!$serviceDate instanceof DateTimeImmutable) {
@@ -120,60 +80,6 @@ function oflc_get_passion_cycle_year_for_service_date(?DateTimeImmutable $servic
 
     $year = (int) $serviceDate->format('Y');
     return (($year - 2025) % 4 + 4) % 4 + 1;
-}
-
-function oflc_fetch_movable_observances(PDO $pdo, $week, $day): array
-{
-    return oflc_fetch_observances_by_logic_keys($pdo, oflc_resolve_movable_logic_keys($week, (int) $day));
-}
-
-function oflc_fetch_fixed_observances(PDO $pdo, int $month, int $day): array
-{
-    return oflc_fetch_observances_by_logic_keys($pdo, oflc_resolve_fixed_logic_keys($month, $day));
-}
-
-function oflc_fetch_observances_by_logic_key(PDO $pdo, string $logic_key): array
-{
-    return oflc_fetch_observances_by_logic_keys($pdo, [$logic_key]);
-}
-
-function oflc_fetch_observances_by_logic_keys(PDO $pdo, array $logic_keys): array
-{
-    if ($logic_keys === []) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($logic_keys), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT lc.id, lc.name, lc.logic_key, COUNT(rs.id) AS reading_set_count
-         FROM liturgical_calendar lc
-         LEFT JOIN reading_sets rs ON rs.liturgical_calendar_id = lc.id AND rs.is_active = 1
-         WHERE lc.is_active = 1
-           AND lc.logic_key IN (' . $placeholders . ')
-         GROUP BY lc.id, lc.name, lc.logic_key
-         ORDER BY lc.name'
-    );
-    $stmt->execute(array_values($logic_keys));
-
-    return $stmt->fetchAll();
-}
-
-function oflc_planning_logic_columns_ready(PDO $pdo): bool
-{
-    static $ready = null;
-
-    if ($ready !== null) {
-        return $ready;
-    }
-
-    $required_columns = [
-        'logic_key',
-    ];
-
-    $columns = $pdo->query('SHOW COLUMNS FROM liturgical_calendar')->fetchAll(PDO::FETCH_COLUMN);
-    $ready = count(array_diff($required_columns, $columns)) === 0;
-
-    return $ready;
 }
 
 function oflc_format_observance_label(array $observance): string
@@ -305,84 +211,6 @@ function oflc_build_option_label(string $logic_key, string $date, bool $is_festi
         : $base_label . ' (' . $date_obj->format('m/d') . ')';
 }
 
-function oflc_fetch_logic_key_name_map(PDO $pdo, array $logic_keys): array
-{
-    if ($logic_keys === []) {
-        return [];
-    }
-
-    $logic_keys = array_values(array_unique(array_filter($logic_keys, static function ($value) {
-        return trim((string) $value) !== '';
-    })));
-    if ($logic_keys === []) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($logic_keys), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT logic_key, name
-         FROM liturgical_calendar
-         WHERE is_active = 1
-           AND logic_key IN (' . $placeholders . ')
-         ORDER BY id'
-    );
-    $stmt->execute($logic_keys);
-
-    $name_map = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $logic_key = (string) ($row['logic_key'] ?? '');
-        if ($logic_key !== '' && !isset($name_map[$logic_key])) {
-            $name_map[$logic_key] = (string) ($row['name'] ?? '');
-        }
-    }
-
-    return $name_map;
-}
-
-function oflc_fetch_observance_detail(PDO $pdo, string $logic_key)
-{
-    $stmt = $pdo->prepare(
-        'SELECT id, name, latin_name, logic_key, season, liturgical_color, notes
-         FROM liturgical_calendar
-         WHERE is_active = 1 AND logic_key = ?
-         ORDER BY id
-         LIMIT 1'
-    );
-    $stmt->execute([$logic_key]);
-    $observance = $stmt->fetch();
-
-    if (!$observance) {
-        return null;
-    }
-
-    $readings_stmt = $pdo->prepare(
-        'SELECT set_name, year_pattern, old_testament, psalm, epistle, gospel
-         FROM reading_sets
-         WHERE liturgical_calendar_id = ?
-           AND is_active = 1
-         ORDER BY id'
-    );
-    $readings_stmt->execute([(int) $observance['id']]);
-    $reading_sets = $readings_stmt->fetchAll();
-
-    return [
-        'observance' => $observance,
-        'reading_sets' => $reading_sets,
-    ];
-}
-
-function oflc_fetch_active_leaders(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, first_name, last_name
-         FROM leaders
-         WHERE is_active = 1
-         ORDER BY last_name, first_name, id'
-    );
-
-    return $stmt->fetchAll();
-}
-
 function oflc_build_leader_catalog_payload(array $leaders): array
 {
     $payload = [
@@ -412,93 +240,6 @@ function oflc_build_leader_catalog_payload(array $leaders): array
     }
 
     return $payload;
-}
-
-function oflc_format_hymn_suggestion_label_with_id(array $row): string
-{
-    $parts = array_filter([
-        trim((string) ($row['hymnal'] ?? '')),
-        trim((string) ($row['hymn_number'] ?? '')),
-    ], static function ($value): bool {
-        return $value !== '';
-    });
-
-    $label = implode(' ', $parts);
-    $title = trim((string) ($row['hymn_title'] ?? ''));
-
-    if ($title !== '') {
-        $label = $label !== '' ? $label . ' - ' . $title : $title;
-    }
-
-    return $label;
-}
-
-function oflc_register_hymn_lookup_key(array &$lookup, string $key, int $id): void
-{
-    $key = trim($key);
-    if ($key === '') {
-        return;
-    }
-
-    if (!isset($lookup[$key])) {
-        $lookup[$key] = $id;
-        return;
-    }
-
-    if ($lookup[$key] !== $id) {
-        $lookup[$key] = 0;
-    }
-}
-
-function oflc_fetch_hymn_catalog(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, insert_use
-         FROM hymn_db
-         WHERE is_active = 1
-         ORDER BY hymnal, hymn_number, hymn_title'
-    );
-
-    $suggestions = [];
-    $lookupByKey = [];
-    $tuneById = [];
-
-    foreach ($stmt->fetchAll() as $row) {
-        $hymnId = (int) ($row['id'] ?? 0);
-        if ($hymnId <= 0) {
-            continue;
-        }
-
-        $tuneById[$hymnId] = trim((string) ($row['hymn_tune'] ?? ''));
-
-        $fullLabel = oflc_format_hymn_suggestion_label_with_id($row);
-        if ($fullLabel !== '') {
-            $suggestions[$fullLabel] = $fullLabel;
-            oflc_register_hymn_lookup_key($lookupByKey, $fullLabel, $hymnId);
-        }
-
-        $hymnal = trim((string) ($row['hymnal'] ?? ''));
-        $hymnNumber = trim((string) ($row['hymn_number'] ?? ''));
-        $title = trim((string) ($row['hymn_title'] ?? ''));
-
-        if ($hymnal !== '' && $hymnNumber !== '') {
-            oflc_register_hymn_lookup_key($lookupByKey, $hymnal . ' ' . $hymnNumber, $hymnId);
-        }
-
-        if ($hymnal === 'LSB' && $hymnNumber !== '') {
-            oflc_register_hymn_lookup_key($lookupByKey, $hymnNumber, $hymnId);
-        }
-
-        if ($title !== '') {
-            oflc_register_hymn_lookup_key($lookupByKey, $title, $hymnId);
-        }
-    }
-
-    return [
-        'suggestions' => array_values($suggestions),
-        'lookup_by_key' => $lookupByKey,
-        'tune_by_id' => $tuneById,
-    ];
 }
 
 function oflc_resolve_hymn_id(string $value, array $lookupByKey): ?int
@@ -623,93 +364,6 @@ function oflc_normalize_extra_hymn_rows(array $request_data): array
     return $rows;
 }
 
-function oflc_fetch_hymn_fill_templates(PDO $pdo, array $serviceSettingsById, array $hymnSlots): array
-{
-    $stmt = $pdo->query(
-        'SELECT
-            s.id AS service_id,
-            s.service_date,
-            s.service_setting_id,
-            s.liturgical_calendar_id,
-            s.copied_from_service_id,
-            lc.name AS observance_name,
-            hu.hymn_id,
-            hu.sort_order,
-            hs.slot_name,
-            hu.stanzas,
-            h.hymnal,
-            h.hymn_number,
-            h.hymn_title
-         FROM service_db s
-         LEFT JOIN liturgical_calendar lc
-            ON lc.id = s.liturgical_calendar_id
-         LEFT JOIN hymn_usage_db hu
-            ON hu.sunday_id = s.id
-           AND hu.is_active = 1
-         LEFT JOIN hymn_slot_db hs
-            ON hs.id = hu.slot_id
-         LEFT JOIN hymn_db h
-            ON h.id = hu.hymn_id
-         WHERE s.is_active = 1
-           AND s.copied_from_service_id IS NULL
-         ORDER BY s.service_date DESC, s.id DESC, hu.sort_order ASC, hu.id ASC'
-    );
-
-    $templates = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $service_id = (int) ($row['service_id'] ?? 0);
-        if ($service_id <= 0) {
-            continue;
-        }
-
-        if (!isset($templates[$service_id])) {
-            $service_date = trim((string) ($row['service_date'] ?? ''));
-            $service_year = $service_date !== '' ? substr($service_date, 0, 4) : '';
-            $observance_name = trim((string) ($row['observance_name'] ?? ''));
-
-            $templates[$service_id] = [
-                'id' => $service_id,
-                'service_date' => $service_date,
-                'service_setting_id' => (int) ($row['service_setting_id'] ?? 0),
-                'liturgical_calendar_id' => (int) ($row['liturgical_calendar_id'] ?? 0),
-                'observance_name' => $observance_name,
-                'label' => trim($observance_name . ' ' . $service_year),
-                'usage_rows' => [],
-            ];
-        }
-
-        $hymn_id = (int) ($row['hymn_id'] ?? 0);
-        if ($hymn_id <= 0) {
-            continue;
-        }
-
-        $label = oflc_format_hymn_suggestion_label_with_id($row);
-        if ($label === '') {
-            continue;
-        }
-
-        $templates[$service_id]['usage_rows'][] = [
-            'label' => $label,
-            'slot_name' => trim((string) ($row['slot_name'] ?? 'Other Hymn')),
-            'sort_order' => (int) ($row['sort_order'] ?? 1),
-            'stanzas' => oflc_normalize_stanza_text($row['stanzas'] ?? ''),
-            'hymnal' => trim((string) ($row['hymnal'] ?? '')),
-            'hymn_number' => trim((string) ($row['hymn_number'] ?? '')),
-            'hymn_title' => trim((string) ($row['hymn_title'] ?? '')),
-        ];
-    }
-
-    foreach ($templates as &$template) {
-        $serviceSettingId = (string) ((int) ($template['service_setting_id'] ?? 0));
-        $serviceSettingDetail = $serviceSettingsById[$serviceSettingId] ?? null;
-        $definitions = oflc_build_hymn_field_definitions($serviceSettingDetail, $hymnSlots);
-        $template['hymn_state'] = oflc_build_hymn_editor_state($definitions, $template['usage_rows'] ?? []);
-    }
-    unset($template);
-
-    return array_values($templates);
-}
-
 function oflc_find_definition_index(array $definitions, string $slotName, int $sortOrder = 1): ?int
 {
     foreach ($definitions as $definition) {
@@ -777,7 +431,7 @@ function oflc_build_hymn_editor_state(array $definitions, array $usageRows): arr
     foreach ($usageRows as $row) {
         $slotName = oflc_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
         $displaySortOrder = (int) ($row['sort_order'] ?? 0);
-        $label = oflc_format_hymn_suggestion_label_with_id($row);
+        $label = oflc_service_db_format_hymn_label($row);
         $targetIndex = null;
 
         if ($label === '') {
@@ -881,52 +535,6 @@ function oflc_get_default_selected_reading_set_id(?array $observance_detail, ?Da
     return (int) ($reading_sets[$default_index]['id'] ?? 0);
 }
 
-function oflc_fetch_hymn_suggestions(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT hymnal, hymn_number, hymn_title
-         FROM hymn_db
-         WHERE is_active = 1
-         ORDER BY hymnal, hymn_number, hymn_title'
-    );
-
-    $suggestions = [];
-
-    foreach ($stmt->fetchAll() as $row) {
-        $parts = array_filter([
-            trim((string) ($row['hymnal'] ?? '')),
-            trim((string) ($row['hymn_number'] ?? '')),
-        ], static function ($value) {
-            return $value !== '';
-        });
-
-        $label = implode(' ', $parts);
-        $title = trim((string) ($row['hymn_title'] ?? ''));
-
-        if ($title !== '') {
-            $label = $label !== '' ? $label . ' - ' . $title : $title;
-        }
-
-        if ($label !== '') {
-            $suggestions[$label] = $label;
-        }
-    }
-
-    return array_values($suggestions);
-}
-
-function oflc_fetch_service_settings(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, setting_name, abbreviation, page_number
-         FROM service_settings_db
-         WHERE is_active = 1
-         ORDER BY id'
-    );
-
-    return $stmt->fetchAll();
-}
-
 function oflc_find_service_setting_detail(array $service_settings, string $input): ?array
 {
     $normalized_input = strtolower(trim($input));
@@ -979,41 +587,6 @@ function oflc_build_service_setting_catalog_payload(array $service_settings): ar
     return $payload;
 }
 
-function oflc_fetch_small_catechism_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, chief_part, chief_part_id, question, abbreviation, question_order
-         FROM small_catechism_mysql
-         WHERE is_active = 1
-         ORDER BY chief_part_id, question_order, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $chief_part = trim((string) ($row['chief_part'] ?? ''));
-        $question = trim((string) ($row['question'] ?? ''));
-        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-
-        $label_parts = array_values(array_filter([$chief_part, $question], static function ($value): bool {
-            return $value !== '';
-        }));
-        $label = implode(' - ', $label_parts);
-        if ($abbreviation !== '') {
-            $label .= ($label !== '' ? ' ' : '') . '(' . $abbreviation . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[] = $row;
-    }
-
-    return $options;
-}
-
 function oflc_build_small_catechism_lookup(array $options): array
 {
     $lookup = [];
@@ -1036,49 +609,6 @@ function oflc_build_small_catechism_lookup(array $options): array
     }
 
     return $lookup;
-}
-
-function oflc_fetch_passion_reading_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, gospel, cycle_year, week_number, section_title, reference
-         FROM passion_reading_db
-         WHERE is_active = 1
-         ORDER BY gospel, cycle_year, week_number, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $gospel = trim((string) ($row['gospel'] ?? ''));
-        $cycle_year = trim((string) ($row['cycle_year'] ?? ''));
-        $week_number = trim((string) ($row['week_number'] ?? ''));
-        $section_title = trim((string) ($row['section_title'] ?? ''));
-        $reference = trim((string) ($row['reference'] ?? ''));
-
-        $label = $gospel;
-        if ($cycle_year !== '') {
-            $label .= ($label !== '' ? ' ' : '') . 'Year ' . $cycle_year;
-        }
-        if ($week_number !== '') {
-            $label .= ' Week ' . $week_number;
-        }
-        if ($section_title !== '') {
-            $label .= ': ' . $section_title;
-        }
-        if ($reference !== '') {
-            $label .= ' (' . $reference . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[] = $row;
-    }
-
-    return $options;
 }
 
 function oflc_filter_passion_reading_options_for_service_date(array $options, ?DateTimeImmutable $serviceDate): array
@@ -1109,26 +639,6 @@ function oflc_is_lent_midweek_observance_name(string $name): bool
     return $normalized_name !== ''
         && strpos($normalized_name, 'lent') !== false
         && (strpos($normalized_name, 'midweek') !== false || strpos($normalized_name, 'midwk') !== false);
-}
-
-function oflc_fetch_hymn_slots(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, slot_name, max_hymns, default_sort_order
-         FROM hymn_slot_db
-         WHERE is_active = 1
-         ORDER BY default_sort_order, id'
-    );
-
-    $slots = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $slot_name = trim((string) ($row['slot_name'] ?? ''));
-        if ($slot_name !== '') {
-            $slots[$slot_name] = $row;
-        }
-    }
-
-    return $slots;
 }
 
 function oflc_build_hymn_field_definitions($selected_service_setting_detail, array $hymn_slots): array
@@ -1226,134 +736,6 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
     return $definitions;
 }
 
-function oflc_insert_service_small_catechism_links(PDO $pdo, int $serviceId, array $smallCatechismIds, string $today): void
-{
-    if ($serviceId <= 0 || $smallCatechismIds === []) {
-        return;
-    }
-
-    $insertStmt = $pdo->prepare(
-        'INSERT INTO service_small_catechism_db (
-            service_id,
-            small_catechism_id,
-            sort_order,
-            created_at,
-            last_updated,
-            is_active
-         ) VALUES (
-            :service_id,
-            :small_catechism_id,
-            :sort_order,
-            :created_at,
-            :last_updated,
-            1
-         )'
-    );
-
-    foreach (array_values($smallCatechismIds) as $index => $smallCatechismId) {
-        $insertStmt->execute([
-            ':service_id' => $serviceId,
-            ':small_catechism_id' => (int) $smallCatechismId,
-            ':sort_order' => $index + 1,
-            ':created_at' => $today,
-            ':last_updated' => $today,
-        ]);
-    }
-}
-
-function oflc_service_passion_reading_table_exists(PDO $pdo): bool
-{
-    static $exists = null;
-
-    if ($exists !== null) {
-        return $exists;
-    }
-
-    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
-    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
-
-    return $exists;
-}
-
-function oflc_ensure_service_passion_reading_table(PDO $pdo): void
-{
-    $pdo->exec(
-        'CREATE TABLE IF NOT EXISTS service_passion_reading_db (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            service_id INT NOT NULL,
-            passion_reading_id INT NOT NULL,
-            sort_order INT NOT NULL,
-            created_at DATE NOT NULL,
-            last_updated DATE NOT NULL,
-            is_active TINYINT(1) NOT NULL DEFAULT 1,
-            INDEX idx_service_passion_reading_active_service (is_active, service_id)
-        )'
-    );
-}
-
-function oflc_insert_service_passion_reading_links(PDO $pdo, int $serviceId, array $passionReadingIds, string $today): void
-{
-    if ($serviceId <= 0 || $passionReadingIds === []) {
-        return;
-    }
-
-    oflc_ensure_service_passion_reading_table($pdo);
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO service_passion_reading_db (
-            service_id,
-            passion_reading_id,
-            sort_order,
-            created_at,
-            last_updated,
-            is_active
-         ) VALUES (
-            :service_id,
-            :passion_reading_id,
-            :sort_order,
-            :created_at,
-            :last_updated,
-            1
-         )'
-    );
-
-    foreach (array_values($passionReadingIds) as $index => $passionReadingId) {
-        $stmt->execute([
-            ':service_id' => $serviceId,
-            ':passion_reading_id' => (int) $passionReadingId,
-            ':sort_order' => $index + 1,
-            ':created_at' => $today,
-            ':last_updated' => $today,
-        ]);
-    }
-}
-
-function oflc_update_existing_reading_set(PDO $pdo, int $readingSetId, int $liturgicalCalendarId, array $draft): void
-{
-    if ($readingSetId <= 0 || $liturgicalCalendarId <= 0) {
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        'UPDATE reading_sets
-         SET psalm = :psalm,
-             old_testament = :old_testament,
-             epistle = :epistle,
-             gospel = :gospel
-         WHERE id = :id
-           AND liturgical_calendar_id = :liturgical_calendar_id
-           AND is_active = 1'
-    );
-    $stmt->execute([
-        ':id' => $readingSetId,
-        ':liturgical_calendar_id' => $liturgicalCalendarId,
-        ':psalm' => trim((string) ($draft['psalm'] ?? '')),
-        ':old_testament' => trim((string) ($draft['old_testament'] ?? '')),
-        ':epistle' => trim((string) ($draft['epistle'] ?? '')),
-        ':gospel' => trim((string) ($draft['gospel'] ?? '')),
-    ]);
-}
-
 $form_state_key = 'planning_form_state';
 $request_data = [];
 $form_errors = [];
@@ -1390,7 +772,7 @@ if ($request_data === []) {
     unset($_SESSION[$form_state_key]);
 }
 
-$suggested_service_date = oflc_get_suggested_service_date($pdo);
+$suggested_service_date = oflc_service_db_get_suggested_service_date($pdo);
 $selected_date = oflc_request_value($request_data, 'service_date', $suggested_service_date);
 $liturgical_window = null;
 $selected_movable_matches = [];
@@ -1428,14 +810,14 @@ $copy_service_config = oflc_get_copy_service_config($selected_service_date_obj);
 $logic_columns_ready = false;
 $date_error = null;
 $recently_celebrated_observance_ids = [];
-$hymn_catalog = oflc_fetch_hymn_catalog($pdo);
+$hymn_catalog = oflc_service_db_fetch_hymn_catalog($pdo);
 $hymn_suggestions = $hymn_catalog['suggestions'];
-$service_settings = oflc_fetch_service_settings($pdo);
+$service_settings = oflc_service_db_fetch_service_settings($pdo);
 $service_setting_catalog_payload = oflc_build_service_setting_catalog_payload($service_settings);
-$small_catechism_options = oflc_fetch_small_catechism_options($pdo);
-$passion_reading_options = oflc_fetch_passion_reading_options($pdo);
-$hymn_slots = oflc_fetch_hymn_slots($pdo);
-$leaders = oflc_fetch_active_leaders($pdo);
+$small_catechism_options = oflc_service_db_fetch_small_catechism_options($pdo);
+$passion_reading_options = oflc_service_db_fetch_passion_reading_options($pdo);
+$hymn_slots = oflc_service_db_fetch_hymn_slots($pdo);
+$leaders = oflc_service_db_fetch_leaders($pdo);
 $leader_catalog_payload = oflc_build_leader_catalog_payload($leaders);
 $hymn_fill_templates = [];
 $service_settings_by_id = [];
@@ -1459,7 +841,14 @@ foreach ($service_settings as $service_setting) {
     $service_settings_by_id[(string) $service_setting['id']] = $service_setting;
 }
 
-$hymn_fill_templates = oflc_fetch_hymn_fill_templates($pdo, $service_settings_by_id, $hymn_slots);
+$hymn_fill_templates = oflc_service_db_fetch_hymn_fill_templates(
+    $pdo,
+    $service_settings_by_id,
+    $hymn_slots,
+    'oflc_normalize_stanza_text',
+    'oflc_build_hymn_field_definitions',
+    'oflc_build_hymn_editor_state'
+);
 
 foreach ($small_catechism_options as $small_catechism_option) {
     $small_catechism_id = (int) ($small_catechism_option['id'] ?? 0);
@@ -1518,11 +907,11 @@ for ($hymn_index = 1; $hymn_index <= 8; $hymn_index++) {
     $selected_hymns[$hymn_index] = oflc_request_value($request_data, 'hymn_' . $hymn_index);
 }
 
-$logic_columns_ready = oflc_planning_logic_columns_ready($pdo);
+$logic_columns_ready = oflc_service_db_planning_logic_columns_ready($pdo);
 
 if ($selected_date !== '') {
     if ($selected_service_date_obj instanceof DateTimeImmutable) {
-        $recently_celebrated_observance_ids = oflc_fetch_recently_celebrated_observance_ids($pdo, $selected_service_date_obj);
+        $recently_celebrated_observance_ids = oflc_service_db_fetch_recently_celebrated_observance_ids($pdo, $selected_service_date_obj);
     }
 
     $liturgical_window = oflc_get_liturgical_window($selected_date, 6, 6);
@@ -1541,39 +930,34 @@ if ($selected_date !== '') {
                 }
             }
         }
-        $logic_key_name_map = oflc_fetch_logic_key_name_map($pdo, $logic_keys_for_names);
+        $logic_key_name_map = oflc_service_db_fetch_logic_key_name_map($pdo, $logic_keys_for_names);
 
-        $selected_movable_matches = oflc_fetch_movable_observances(
+        $selected_movable_matches = oflc_service_db_fetch_observances_by_logic_keys(
             $pdo,
-            $liturgical_window['selected']['week'],
-            $liturgical_window['selected']['weekday']
+            oflc_resolve_movable_logic_keys($liturgical_window['selected']['week'], (int) $liturgical_window['selected']['weekday'])
         );
-        $selected_fixed_matches = oflc_fetch_fixed_observances(
+        $selected_fixed_matches = oflc_service_db_fetch_observances_by_logic_keys(
             $pdo,
-            $liturgical_window['selected']['month'],
-            $liturgical_window['selected']['day']
+            oflc_resolve_fixed_logic_keys((int) $liturgical_window['selected']['month'], (int) $liturgical_window['selected']['day'])
         );
 
         foreach ($liturgical_window['sunday_options'] as $index => $option) {
-            $liturgical_window['sunday_options'][$index]['matches'] = oflc_fetch_movable_observances(
+            $liturgical_window['sunday_options'][$index]['matches'] = oflc_service_db_fetch_observances_by_logic_keys(
                 $pdo,
-                $option['week'],
-                0
+                oflc_resolve_movable_logic_keys($option['week'], 0)
             );
         }
 
         foreach ($liturgical_window['entries'] as $index => $entry) {
-            $liturgical_window['entries'][$index]['fixed_matches'] = oflc_fetch_fixed_observances(
+            $liturgical_window['entries'][$index]['fixed_matches'] = oflc_service_db_fetch_observances_by_logic_keys(
                 $pdo,
-                $entry['month'],
-                $entry['day']
+                oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day'])
             );
 
             if ($entry['is_sunday']) {
-                $liturgical_window['entries'][$index]['sunday_matches'] = oflc_fetch_movable_observances(
+                $liturgical_window['entries'][$index]['sunday_matches'] = oflc_service_db_fetch_observances_by_logic_keys(
                     $pdo,
-                    $entry['week'],
-                    0
+                    oflc_resolve_movable_logic_keys($entry['week'], 0)
                 );
             } else {
                 $liturgical_window['entries'][$index]['sunday_matches'] = [];
@@ -2000,17 +1384,8 @@ if ($is_add_submit && $date_error === null) {
             $target_dates['sunday'] = $selected_service_date_obj->format('Y-m-d');
         }
 
-        $conflict_stmt = $pdo->prepare(
-            'SELECT COUNT(*)
-             FROM service_db
-             WHERE is_active = 1
-               AND service_date = ?
-               AND service_order = 1'
-        );
-
         foreach ($target_dates as $target_date) {
-            $conflict_stmt->execute([$target_date]);
-            if ((int) $conflict_stmt->fetchColumn() > 0) {
+            if (oflc_service_db_has_active_service_conflict($pdo, $target_date)) {
                 $form_errors[] = 'Another active service already exists for ' . $target_date . '.';
             }
         }
@@ -2039,7 +1414,7 @@ if ($is_add_submit && $date_error === null) {
                     $new_reading_sets
                 );
             } elseif ($has_draft_readings && is_array($draft_one) && $resolved_selected_reading_set_id !== null) {
-                oflc_update_existing_reading_set(
+                oflc_service_db_update_existing_reading_set(
                     $pdo,
                     $resolved_selected_reading_set_id,
                     (int) ($persisted_observance_detail['observance']['id'] ?? 0),
@@ -2051,58 +1426,6 @@ if ($is_add_submit && $date_error === null) {
                 $resolved_selected_reading_set_id = (int) reset($inserted_reading_set_ids);
             }
 
-            $insert_service_stmt = $pdo->prepare(
-                'INSERT INTO service_db (
-                    service_date,
-                    liturgical_calendar_id,
-                    passion_reading_id,
-                    small_catechism_id,
-                    selected_reading_set_id,
-                    service_setting_id,
-                    leader_id,
-                    service_order,
-                    copied_from_service_id,
-                    last_updated,
-                    is_active
-                 ) VALUES (
-                    :service_date,
-                    :liturgical_calendar_id,
-                    :passion_reading_id,
-                    :small_catechism_id,
-                    :selected_reading_set_id,
-                    :service_setting_id,
-                    :leader_id,
-                    1,
-                    :copied_from_service_id,
-                    :last_updated,
-                    1
-                 )'
-            );
-
-            $insert_usage_stmt = $pdo->prepare(
-                'INSERT INTO hymn_usage_db (
-                    sunday_id,
-                    hymn_id,
-                    slot_id,
-                    sort_order,
-                    stanzas,
-                    version_number,
-                    created_at,
-                    last_updated,
-                    is_active
-                 ) VALUES (
-                    :sunday_id,
-                    :hymn_id,
-                    :slot_id,
-                    :sort_order,
-                    :stanzas,
-                    1,
-                    :created_at,
-                    :last_updated,
-                    1
-                 )'
-            );
-
             $liturgical_calendar_id = (int) ($persisted_observance_detail['observance']['id'] ?? 0) ?: null;
 
             $insertServiceWithHymns = static function (
@@ -2110,8 +1433,6 @@ if ($is_add_submit && $date_error === null) {
                 ?int $leaderId,
                 ?int $copiedFromServiceId
             ) use (
-                $insert_service_stmt,
-                $insert_usage_stmt,
                 $liturgical_calendar_id,
                 $passion_reading_id,
                 $passion_reading_ids,
@@ -2123,33 +1444,21 @@ if ($is_add_submit && $date_error === null) {
                 $hymn_entries,
                 $pdo
             ): int {
-                $insert_service_stmt->execute([
-                    ':service_date' => $serviceDate,
-                    ':liturgical_calendar_id' => $liturgical_calendar_id,
-                    ':passion_reading_id' => $passion_reading_id,
-                    ':small_catechism_id' => $small_catechism_id,
-                    ':selected_reading_set_id' => $resolved_selected_reading_set_id,
-                    ':service_setting_id' => $service_setting_id,
-                    ':leader_id' => $leaderId,
-                    ':copied_from_service_id' => $copiedFromServiceId,
-                    ':last_updated' => $today,
+                $serviceId = oflc_service_db_insert_service($pdo, [
+                    'service_date' => $serviceDate,
+                    'liturgical_calendar_id' => $liturgical_calendar_id,
+                    'passion_reading_id' => $passion_reading_id,
+                    'small_catechism_id' => $small_catechism_id,
+                    'selected_reading_set_id' => $resolved_selected_reading_set_id,
+                    'service_setting_id' => $service_setting_id,
+                    'leader_id' => $leaderId,
+                    'copied_from_service_id' => $copiedFromServiceId,
+                    'last_updated' => $today,
                 ]);
 
-                $serviceId = (int) $pdo->lastInsertId();
-                oflc_insert_service_small_catechism_links($pdo, $serviceId, $small_catechism_ids, $today);
-                oflc_insert_service_passion_reading_links($pdo, $serviceId, $passion_reading_ids, $today);
-
-                foreach ($hymn_entries as $entry) {
-                    $insert_usage_stmt->execute([
-                        ':sunday_id' => $serviceId,
-                        ':hymn_id' => $entry['hymn_id'],
-                        ':slot_id' => $entry['slot_id'],
-                        ':sort_order' => $entry['sort_order'],
-                        ':stanzas' => $entry['stanzas'],
-                        ':created_at' => $today,
-                        ':last_updated' => $today,
-                    ]);
-                }
+                oflc_service_db_insert_service_small_catechism_links($pdo, $serviceId, $small_catechism_ids, $today);
+                oflc_service_db_insert_service_passion_reading_links($pdo, $serviceId, $passion_reading_ids, $today);
+                oflc_service_db_insert_hymn_usage_rows($pdo, $serviceId, $hymn_entries, $today);
 
                 return $serviceId;
             };
@@ -3992,23 +3301,25 @@ window.oflcInitializePlannerUI = function (root) {
     }
 
     function bindExtraHymnSlotBehavior(scope) {
-        var slotInputs = scope.querySelectorAll('.js-extra-hymn-slot-input');
+        var slotButtons = scope.querySelectorAll('.js-extra-hymn-slot-button');
         var currentServiceId = serviceSettingIdInput ? (serviceSettingIdInput.value || '') : '';
         var definitions = hymnDefinitionsByService[currentServiceId] || [];
         var layoutMode = getHymnLayoutMode(definitions);
 
-        Array.prototype.forEach.call(slotInputs, function (input) {
-            var anchor = input.closest('.service-card-suggestion-anchor');
+        Array.prototype.forEach.call(slotButtons, function (button) {
+            var anchor = button.closest('.service-card-suggestion-anchor');
             var list = anchor ? anchor.querySelector('.js-extra-hymn-slot-suggestion-list') : null;
             var hidden = anchor ? anchor.querySelector('.js-extra-hymn-slot-hidden') : null;
 
             function syncSlot(value) {
                 var slotValue = String(value || '').trim().toLowerCase() === 'distribution' ? 'Distribution Hymn' : 'Other Hymn';
-                var row = input.closest('.service-card-hymn-row');
+                var row = button.closest('.service-card-hymn-row');
                 var previousSlotValue = row ? (row.getAttribute('data-extra-slot-name') || 'Other Hymn') : 'Other Hymn';
 
                 slotValue = normalizeExtraHymnSlotNameForLayout(slotValue, layoutMode);
-                input.value = slotValue === 'Distribution Hymn' ? 'Distribution' : 'Other';
+                button.textContent = slotValue === 'Distribution Hymn' ? 'D' : 'O';
+                button.setAttribute('title', slotValue === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn');
+                button.setAttribute('aria-label', slotValue === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn');
                 if (hidden) {
                     hidden.value = slotValue;
                 }
@@ -4030,33 +3341,27 @@ window.oflcInitializePlannerUI = function (root) {
             }
 
             function syncSlotAndRefresh(value) {
+                var row = button.closest('.service-card-hymn-row');
+                var labelInput = row ? row.querySelector('.service-card-hymn-lookup-extra') : null;
                 var slotChanged = syncSlot(value);
 
                 closeSlotOptions();
                 if (slotChanged) {
-                    renderHymnPane(currentServiceId);
+                    if (labelInput) {
+                        labelInput.setAttribute('placeholder', hidden && hidden.value === 'Distribution Hymn' ? 'Distribution Hymn' : 'Additional hymn');
+                    }
+                    captureHymnState();
                 }
             }
 
             function showSlotOptions() {
-                renderSimpleSuggestionOptions(input, list, layoutMode === 'divine_service' ? ['Distribution', 'Other'] : ['Other'], function (name) {
+                renderSimpleSuggestionOptions(button, list, layoutMode === 'divine_service' ? ['Distribution', 'Other'] : ['Other'], function (name) {
                     syncSlotAndRefresh(name);
                 });
             }
 
-            input.addEventListener('focus', showSlotOptions);
-            input.addEventListener('click', showSlotOptions);
-            input.addEventListener('input', function () {
-                showSlotOptions();
-            });
-            input.addEventListener('change', function () {
-                syncSlotAndRefresh(input.value);
-            });
-            input.addEventListener('blur', function () {
-                window.setTimeout(function () {
-                    syncSlotAndRefresh(input.value);
-                }, 120);
-            });
+            syncSlot(hidden ? hidden.value : 'Other Hymn');
+            button.addEventListener('click', showSlotOptions);
         });
     }
 
@@ -4568,7 +3873,7 @@ window.oflcInitializePlannerUI = function (root) {
 
                 stanzaHtml =
                     '<input type="hidden" name="hymn_stanzas[' + originalIndex + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
-                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>';
+                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">S</button>';
 
                 html +=
                     '<div class="service-card-hymn-row" data-row-key="' + escapeHtml(meta.key) + '" data-row-kind="base" draggable="false">' +
@@ -4592,10 +3897,10 @@ window.oflcInitializePlannerUI = function (root) {
                     '<input type="hidden" name="extra_hymn_keys[]" value="' + escapeHtml(extraRow.key) + '">' +
                     '<input type="text" name="extra_hymn_values[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
                     '<input type="hidden" name="extra_hymn_stanzas[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
-                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>' +
+                    '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">S</button>' +
                     '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
                         '<input type="hidden" class="js-extra-hymn-slot-hidden" name="extra_hymn_slots[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.slot_name) + '">' +
-                        '<input type="text" class="service-card-text service-card-hymn-slot-input js-extra-hymn-slot-input" value="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution' : 'Other') + '" autocomplete="off">' +
+                        '<button type="button" class="service-card-hymn-slot-button js-extra-hymn-slot-button" aria-label="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '" title="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '">' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'D' : 'O') + '</button>' +
                         '<div class="service-card-suggestion-list js-extra-hymn-slot-suggestion-list" hidden></div>' +
                     '</div>' +
                     '<button type="button" class="service-card-remove-hymn-button" data-remove-row-key="' + escapeHtml(extraRow.key) + '" aria-label="Remove hymn">&times;</button>' +

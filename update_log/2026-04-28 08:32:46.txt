@@ -1,0 +1,19 @@
+Timestamp: 2026-04-28 08:32:46
+Title: Service DB write cleanup
+
+Summary:
+- Created includes/db/service-db-write.php as the shared home for duplicated service-related DB write helpers.
+- Moved duplicate write helpers out of add-service.php and update-service.php.
+- Consolidated Small Catechism link inserts, Passion reading link table creation, Passion reading link inserts, and existing reading set updates behind oflc_service_db_* functions.
+- Kept page-specific service creation, service update, hymn usage writes, validation, and transaction flow in the original pages to reduce churn.
+
+Updated callers:
+- add-service.php now requires the shared write include and calls the shared write helpers.
+- update-service.php now requires the shared write include and calls the shared write helpers.
+
+Verification:
+- php -l includes/db/service-db-write.php
+- php -l add-service.php
+- php -l update-service.php
+- PHP GET render check for add-service.php
+- PHP GET render check for update-service.php

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $page_title = 'Service Schedule';
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/db/service-db-read.php';
 require_once __DIR__ . '/includes/church_year.php';
 
 $oflcScheduleEmbedded = $oflcScheduleEmbedded ?? false;
@@ -408,51 +409,6 @@ function oflc_collect_group_small_catechism_abbreviations(array $services, array
     return $abbreviations;
 }
 
-function oflc_schedule_service_passion_reading_table_exists(PDO $pdo): bool
-{
-    static $exists = null;
-
-    if ($exists !== null) {
-        return $exists;
-    }
-
-    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
-    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
-
-    return $exists;
-}
-
-function oflc_fetch_passion_reading_ids_by_service(PDO $pdo, array $serviceIds): array
-{
-    $serviceIds = array_values(array_filter(array_map('intval', $serviceIds), static function (int $serviceId): bool {
-        return $serviceId > 0;
-    }));
-    if ($serviceIds === [] || !oflc_schedule_service_passion_reading_table_exists($pdo)) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT service_id, passion_reading_id
-         FROM service_passion_reading_db
-         WHERE is_active = 1
-           AND service_id IN (' . $placeholders . ')
-         ORDER BY service_id ASC, sort_order ASC, id ASC'
-    );
-    $stmt->execute($serviceIds);
-
-    $idsByService = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        $passionReadingId = (int) ($row['passion_reading_id'] ?? 0);
-        if ($serviceId > 0 && $passionReadingId > 0) {
-            $idsByService[$serviceId][] = $passionReadingId;
-        }
-    }
-
-    return $idsByService;
-}
-
 function oflc_collect_group_passion_readings(array $services, array $readingsById, array $idsByService): array
 {
     $readings = [];
@@ -567,160 +523,29 @@ if ($currentRubricYearOption !== null) {
 }
 $scheduleResetUrl = 'schedule.php' . ($scheduleResetQuery !== [] ? '?' . http_build_query($scheduleResetQuery) : '');
 
-$serviceStatement = $pdo->query(
-    'SELECT
-        s.id,
-        s.service_date,
-        s.service_order,
-        s.passion_reading_id,
-        s.liturgical_calendar_id,
-        lc.name AS observance_name,
-        lc.latin_name,
-        lc.liturgical_color,
-        ss.setting_name,
-        ss.abbreviation,
-        ss.page_number,
-        l.last_name AS leader_last_name
-     FROM service_db s
-     LEFT JOIN liturgical_calendar lc ON lc.id = s.liturgical_calendar_id
-     LEFT JOIN service_settings_db ss ON ss.id = s.service_setting_id
-     LEFT JOIN leaders l ON l.id = s.leader_id
-     WHERE s.is_active = 1
-     ORDER BY s.service_date ' . ($sortOrder === 'desc' ? 'DESC' : 'ASC') . ', s.service_order ' . ($sortOrder === 'desc' ? 'DESC' : 'ASC') . ', s.id ' . ($sortOrder === 'desc' ? 'DESC' : 'ASC')
-);
-$services = $serviceStatement->fetchAll();
+$services = oflc_service_db_fetch_schedule_services($pdo, $sortOrder);
 
 $serviceIds = array_map(static function (array $row): int {
     return (int) $row['id'];
 }, $services);
 
-$smallCatechismAbbreviationsByService = [];
-if ($serviceIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $smallCatechismStatement = $pdo->prepare(
-        'SELECT
-            sc.service_id,
-            sm.abbreviation
-         FROM service_small_catechism_db sc
-         INNER JOIN small_catechism_mysql sm ON sm.id = sc.small_catechism_id
-         WHERE sc.is_active = 1
-           AND sc.service_id IN (' . $placeholders . ')
-         ORDER BY sc.service_id ASC, sc.sort_order ASC, sc.id ASC'
-    );
-    $smallCatechismStatement->execute($serviceIds);
+$smallCatechismAbbreviationsByService = oflc_service_db_fetch_small_catechism_abbreviations_by_service($pdo, $serviceIds);
+$passionReadingIdsByService = oflc_service_db_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
 
-    foreach ($smallCatechismStatement->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-        if ($serviceId <= 0 || $abbreviation === '') {
-            continue;
-        }
-
-        if (!isset($smallCatechismAbbreviationsByService[$serviceId])) {
-            $smallCatechismAbbreviationsByService[$serviceId] = [];
-        }
-
-        if (!in_array($abbreviation, $smallCatechismAbbreviationsByService[$serviceId], true)) {
-            $smallCatechismAbbreviationsByService[$serviceId][] = $abbreviation;
-        }
-    }
-}
-
-$passionReadingIdsByService = oflc_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
-
-$passionReadingsById = [];
 $passionReadingIds = array_values(array_unique(array_filter(array_merge(
     array_map(static function (array $row): int {
         return (int) ($row['passion_reading_id'] ?? 0);
     }, $services),
     $passionReadingIdsByService === [] ? [] : array_merge(...array_values($passionReadingIdsByService))
 ))));
-if ($passionReadingIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($passionReadingIds), '?'));
-    $passionReadingStatement = $pdo->prepare(
-        'SELECT id, gospel, section_title, reference
-         FROM passion_reading_db
-         WHERE is_active = 1
-           AND id IN (' . $placeholders . ')'
-    );
-    $passionReadingStatement->execute($passionReadingIds);
-
-    foreach ($passionReadingStatement->fetchAll() as $row) {
-        $passionReadingId = (int) ($row['id'] ?? 0);
-        if ($passionReadingId > 0) {
-            $passionReadingsById[$passionReadingId] = $row;
-        }
-    }
-}
+$passionReadingsById = oflc_service_db_fetch_passion_readings_by_id($pdo, $passionReadingIds);
 
 $liturgicalCalendarIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
     return (int) ($row['liturgical_calendar_id'] ?? 0);
 }, $services))));
 
-$readingSetsByCalendar = [];
-if ($liturgicalCalendarIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($liturgicalCalendarIds), '?'));
-    $readingStatement = $pdo->prepare(
-        'SELECT
-            liturgical_calendar_id,
-            set_name,
-            year_pattern,
-            old_testament,
-            psalm,
-            epistle,
-            gospel
-         FROM reading_sets
-         WHERE is_active = 1
-           AND liturgical_calendar_id IN (' . $placeholders . ')
-         ORDER BY liturgical_calendar_id ASC, id ASC'
-    );
-    $readingStatement->execute($liturgicalCalendarIds);
-
-    foreach ($readingStatement->fetchAll() as $readingRow) {
-        $calendarId = (int) $readingRow['liturgical_calendar_id'];
-        if (!isset($readingSetsByCalendar[$calendarId])) {
-            $readingSetsByCalendar[$calendarId] = [];
-        }
-
-        $readingSetsByCalendar[$calendarId][] = $readingRow;
-    }
-}
-
-$hymnsByService = [];
-if ($serviceIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $hymnStatement = $pdo->prepare(
-        'SELECT
-            hu.sunday_id AS service_id,
-            hu.sort_order,
-            hu.stanzas,
-            hd.id AS hymn_id,
-            hd.hymnal,
-            hd.hymn_number,
-            hd.hymn_title,
-            hd.hymn_tune,
-            hd.insert_use
-         FROM hymn_usage_db hu
-         LEFT JOIN hymn_db hd ON hd.id = hu.hymn_id
-         WHERE hu.is_active = 1
-           AND hu.sunday_id IN (' . $placeholders . ')
-         ORDER BY hu.sunday_id ASC, hu.sort_order ASC, hu.id ASC'
-    );
-    $hymnStatement->execute($serviceIds);
-
-    foreach ($hymnStatement->fetchAll() as $hymnRow) {
-        $serviceId = (int) $hymnRow['service_id'];
-        if (!isset($hymnsByService[$serviceId])) {
-            $hymnsByService[$serviceId] = [];
-        }
-
-        $hymnsByService[$serviceId][] = [
-            'hymn_id' => (int) ($hymnRow['hymn_id'] ?? 0),
-            'label' => oflc_format_schedule_hymn_label($hymnRow),
-            'tune' => trim((string) ($hymnRow['hymn_tune'] ?? '')),
-        ];
-    }
-}
+$readingSetsByCalendar = oflc_service_db_fetch_reading_sets_by_calendar($pdo, $liturgicalCalendarIds);
+$hymnsByService = oflc_service_db_fetch_schedule_hymns_by_service($pdo, $serviceIds, 'oflc_format_schedule_hymn_label');
 
 $scheduleGroups = oflc_group_schedule_services($services);
 if ($scheduleFilterError === null) {

@@ -5,9 +5,14 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+$isAjaxRequest = isset($_SERVER['HTTP_X_REQUESTED_WITH'])
+    && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+
 $page_title = 'Update a Service';
 $body_class = 'update-service-page';
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/db/service-db-read.php';
+require_once __DIR__ . '/includes/db/service-db-write.php';
 require_once __DIR__ . '/includes/church_year.php';
 require_once __DIR__ . '/includes/liturgical.php';
 require_once __DIR__ . '/includes/service_observances.php';
@@ -130,18 +135,6 @@ function oflc_update_clean_reading_text($text, bool $removeAntiphon = false): st
     return trim($text);
 }
 
-function oflc_update_fetch_service_settings(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, setting_name, abbreviation, page_number
-         FROM service_settings_db
-         WHERE is_active = 1
-         ORDER BY id'
-    );
-
-    return $stmt->fetchAll();
-}
-
 function oflc_update_find_service_setting_detail(array $serviceSettings, string $input): ?array
 {
     $normalizedInput = strtolower(trim($input));
@@ -192,46 +185,6 @@ function oflc_update_build_service_setting_catalog_payload(array $serviceSetting
     }
 
     return $payload;
-}
-
-function oflc_update_fetch_hymn_slots(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, slot_name, max_hymns, default_sort_order
-         FROM hymn_slot_db
-         WHERE is_active = 1
-         ORDER BY default_sort_order, id'
-    );
-
-    $slots = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $slotName = trim((string) ($row['slot_name'] ?? ''));
-        if ($slotName === '') {
-            continue;
-        }
-
-        $slots[$slotName] = $row;
-    }
-
-    return $slots;
-}
-
-function oflc_update_fetch_leaders(PDO $pdo, bool $includeInactive = false): array
-{
-    $sql = 'SELECT id, first_name, last_name, is_active
-         FROM leaders';
-
-    if (!$includeInactive) {
-        $sql .= '
-         WHERE is_active = 1';
-    }
-
-    $sql .= '
-         ORDER BY is_active DESC, last_name, first_name, id';
-
-    $stmt = $pdo->query($sql);
-
-    return $stmt->fetchAll();
 }
 
 function oflc_update_build_leader_lookup(array $leaders): array
@@ -313,41 +266,6 @@ function oflc_update_get_passion_cycle_year_for_service_date(?DateTimeImmutable 
     return (($year - 2025) % 4 + 4) % 4 + 1;
 }
 
-function oflc_update_fetch_small_catechism_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, chief_part, chief_part_id, question, abbreviation, question_order
-         FROM small_catechism_mysql
-         WHERE is_active = 1
-         ORDER BY chief_part_id, question_order, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $chiefPart = trim((string) ($row['chief_part'] ?? ''));
-        $question = trim((string) ($row['question'] ?? ''));
-        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-
-        $labelParts = array_values(array_filter([$chiefPart, $question], static function ($value): bool {
-            return $value !== '';
-        }));
-        $label = implode(' - ', $labelParts);
-        if ($abbreviation !== '') {
-            $label .= ($label !== '' ? ' ' : '') . '(' . $abbreviation . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[] = $row;
-    }
-
-    return $options;
-}
-
 function oflc_update_build_small_catechism_lookup(array $options): array
 {
     $lookup = [];
@@ -370,49 +288,6 @@ function oflc_update_build_small_catechism_lookup(array $options): array
     }
 
     return $lookup;
-}
-
-function oflc_update_fetch_passion_reading_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, gospel, cycle_year, week_number, section_title, reference
-         FROM passion_reading_db
-         WHERE is_active = 1
-         ORDER BY gospel, cycle_year, week_number, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $gospel = trim((string) ($row['gospel'] ?? ''));
-        $cycleYear = trim((string) ($row['cycle_year'] ?? ''));
-        $weekNumber = trim((string) ($row['week_number'] ?? ''));
-        $sectionTitle = trim((string) ($row['section_title'] ?? ''));
-        $reference = trim((string) ($row['reference'] ?? ''));
-
-        $label = $gospel;
-        if ($cycleYear !== '') {
-            $label .= ($label !== '' ? ' ' : '') . 'Year ' . $cycleYear;
-        }
-        if ($weekNumber !== '') {
-            $label .= ' Week ' . $weekNumber;
-        }
-        if ($sectionTitle !== '') {
-            $label .= ': ' . $sectionTitle;
-        }
-        if ($reference !== '') {
-            $label .= ' (' . $reference . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[] = $row;
-    }
-
-    return $options;
 }
 
 function oflc_update_filter_passion_reading_options_for_service_date(array $options, ?DateTimeImmutable $serviceDate): array
@@ -511,219 +386,6 @@ function oflc_update_normalize_extra_hymn_rows(array $data): array
     }
 
     return $rows;
-}
-
-function oflc_update_format_small_catechism_label(array $row): string
-{
-    $labelParts = array_values(array_filter([
-        trim((string) ($row['chief_part'] ?? '')),
-        trim((string) ($row['question'] ?? '')),
-    ], static function ($value): bool {
-        return $value !== '';
-    }));
-    $label = implode(' - ', $labelParts);
-    $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-    if ($abbreviation !== '') {
-        $label .= ($label !== '' ? ' ' : '') . '(' . $abbreviation . ')';
-    }
-
-    return $label !== '' ? $label : 'Small Catechism';
-}
-
-function oflc_update_fetch_small_catechism_labels_by_service(PDO $pdo, array $serviceIds): array
-{
-    $serviceIds = array_values(array_filter(array_map('intval', $serviceIds), static function (int $serviceId): bool {
-        return $serviceId > 0;
-    }));
-    if ($serviceIds === []) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT
-            sc.service_id,
-            sm.chief_part,
-            sm.question,
-            sm.abbreviation
-         FROM service_small_catechism_db sc
-         INNER JOIN small_catechism_mysql sm ON sm.id = sc.small_catechism_id
-         WHERE sc.is_active = 1
-           AND sc.service_id IN (' . $placeholders . ')
-         ORDER BY sc.service_id ASC, sc.sort_order ASC, sc.id ASC'
-    );
-    $stmt->execute($serviceIds);
-
-    $labelsByService = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        if ($serviceId <= 0) {
-            continue;
-        }
-
-        $labelsByService[$serviceId][] = oflc_update_format_small_catechism_label($row);
-    }
-
-    return $labelsByService;
-}
-
-function oflc_update_insert_service_small_catechism_links(PDO $pdo, int $serviceId, array $smallCatechismIds, string $today): void
-{
-    if ($serviceId <= 0 || $smallCatechismIds === []) {
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO service_small_catechism_db (
-            service_id,
-            small_catechism_id,
-            sort_order,
-            created_at,
-            last_updated,
-            is_active
-         ) VALUES (
-            :service_id,
-            :small_catechism_id,
-            :sort_order,
-            :created_at,
-            :last_updated,
-            1
-         )'
-    );
-
-    foreach (array_values($smallCatechismIds) as $index => $smallCatechismId) {
-        $stmt->execute([
-            ':service_id' => $serviceId,
-            ':small_catechism_id' => (int) $smallCatechismId,
-            ':sort_order' => $index + 1,
-            ':created_at' => $today,
-            ':last_updated' => $today,
-        ]);
-    }
-}
-
-function oflc_update_service_passion_reading_table_exists(PDO $pdo): bool
-{
-    static $exists = null;
-
-    if ($exists !== null) {
-        return $exists;
-    }
-
-    $stmt = $pdo->query("SHOW TABLES LIKE 'service_passion_reading_db'");
-    $exists = $stmt !== false && $stmt->fetchColumn() !== false;
-
-    return $exists;
-}
-
-function oflc_update_ensure_service_passion_reading_table(PDO $pdo): void
-{
-    $pdo->exec(
-        'CREATE TABLE IF NOT EXISTS service_passion_reading_db (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            service_id INT NOT NULL,
-            passion_reading_id INT NOT NULL,
-            sort_order INT NOT NULL,
-            created_at DATE NOT NULL,
-            last_updated DATE NOT NULL,
-            is_active TINYINT(1) NOT NULL DEFAULT 1,
-            INDEX idx_service_passion_reading_active_service (is_active, service_id)
-        )'
-    );
-}
-
-function oflc_update_fetch_passion_reading_ids_by_service(PDO $pdo, array $serviceIds): array
-{
-    $serviceIds = array_values(array_filter(array_map('intval', $serviceIds), static function (int $serviceId): bool {
-        return $serviceId > 0;
-    }));
-    if ($serviceIds === [] || !oflc_update_service_passion_reading_table_exists($pdo)) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT service_id, passion_reading_id
-         FROM service_passion_reading_db
-         WHERE is_active = 1
-           AND service_id IN (' . $placeholders . ')
-         ORDER BY service_id ASC, sort_order ASC, id ASC'
-    );
-    $stmt->execute($serviceIds);
-
-    $idsByService = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        $passionReadingId = (int) ($row['passion_reading_id'] ?? 0);
-        if ($serviceId > 0 && $passionReadingId > 0) {
-            $idsByService[$serviceId][] = $passionReadingId;
-        }
-    }
-
-    return $idsByService;
-}
-
-function oflc_update_insert_service_passion_reading_links(PDO $pdo, int $serviceId, array $passionReadingIds, string $today): void
-{
-    if ($serviceId <= 0 || $passionReadingIds === []) {
-        return;
-    }
-
-    oflc_update_ensure_service_passion_reading_table($pdo);
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO service_passion_reading_db (
-            service_id,
-            passion_reading_id,
-            sort_order,
-            created_at,
-            last_updated,
-            is_active
-         ) VALUES (
-            :service_id,
-            :passion_reading_id,
-            :sort_order,
-            :created_at,
-            :last_updated,
-            1
-         )'
-    );
-
-    foreach (array_values($passionReadingIds) as $index => $passionReadingId) {
-        $stmt->execute([
-            ':service_id' => $serviceId,
-            ':passion_reading_id' => (int) $passionReadingId,
-            ':sort_order' => $index + 1,
-            ':created_at' => $today,
-            ':last_updated' => $today,
-        ]);
-    }
-}
-
-function oflc_update_existing_reading_set(PDO $pdo, int $readingSetId, int $liturgicalCalendarId, array $draft): void
-{
-    if ($readingSetId <= 0 || $liturgicalCalendarId <= 0) {
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        'UPDATE reading_sets
-         SET psalm = :psalm,
-             old_testament = :old_testament,
-             epistle = :epistle,
-             gospel = :gospel
-         WHERE id = :id
-           AND liturgical_calendar_id = :liturgical_calendar_id
-           AND is_active = 1'
-    );
-    $stmt->execute([
-        ':id' => $readingSetId,
-        ':liturgical_calendar_id' => $liturgicalCalendarId,
-        ':psalm' => trim((string) ($draft['psalm'] ?? '')),
-        ':old_testament' => trim((string) ($draft['old_testament'] ?? '')),
-        ':epistle' => trim((string) ($draft['epistle'] ?? '')),
-        ':gospel' => trim((string) ($draft['gospel'] ?? '')),
-    ]);
 }
 
 function oflc_update_render_reading_supplements_html(
@@ -868,140 +530,6 @@ function oflc_update_build_search_payload(array $scheduleGroups): array
     return $payload;
 }
 
-function oflc_update_format_hymn_suggestion_label(array $row): string
-{
-    $parts = array_filter([
-        trim((string) ($row['hymnal'] ?? '')),
-        trim((string) ($row['hymn_number'] ?? '')),
-    ], static function ($value): bool {
-        return $value !== '';
-    });
-
-    $label = implode(' ', $parts);
-    $title = trim((string) ($row['hymn_title'] ?? ''));
-
-    if ($title !== '') {
-        $label = $label !== '' ? $label . ' - ' . $title : $title;
-    }
-
-    return $label;
-}
-
-function oflc_update_register_hymn_lookup_key(array &$lookup, string $key, int $id): void
-{
-    $key = trim($key);
-    if ($key === '') {
-        return;
-    }
-
-    if (!isset($lookup[$key])) {
-        $lookup[$key] = $id;
-        return;
-    }
-
-    if ($lookup[$key] !== $id) {
-        $lookup[$key] = 0;
-    }
-}
-
-function oflc_update_fetch_hymn_catalog(PDO $pdo, bool $includeInactive = false): array
-{
-    $sql = 'SELECT id, hymnal, hymn_number, hymn_title, hymn_tune, insert_use, is_active
-         FROM hymn_db';
-
-    if (!$includeInactive) {
-        $sql .= '
-         WHERE is_active = 1';
-    }
-
-    $sql .= '
-         ORDER BY is_active DESC, hymnal, hymn_number, hymn_title';
-
-    $stmt = $pdo->query($sql);
-
-    $suggestions = [];
-    $lookupByKey = [];
-    $tuneById = [];
-
-    foreach ($stmt->fetchAll() as $row) {
-        $hymnId = (int) ($row['id'] ?? 0);
-        if ($hymnId <= 0) {
-            continue;
-        }
-
-        $tuneById[$hymnId] = trim((string) ($row['hymn_tune'] ?? ''));
-
-        $fullLabel = oflc_update_format_hymn_suggestion_label($row);
-        if ($fullLabel !== '') {
-            $suggestions[$fullLabel] = $fullLabel;
-            oflc_update_register_hymn_lookup_key($lookupByKey, $fullLabel, $hymnId);
-        }
-
-        $hymnal = trim((string) ($row['hymnal'] ?? ''));
-        $hymnNumber = trim((string) ($row['hymn_number'] ?? ''));
-        $title = trim((string) ($row['hymn_title'] ?? ''));
-
-        if ($hymnal !== '' && $hymnNumber !== '') {
-            oflc_update_register_hymn_lookup_key($lookupByKey, $hymnal . ' ' . $hymnNumber, $hymnId);
-        }
-
-        if ($hymnal === 'LSB' && $hymnNumber !== '') {
-            oflc_update_register_hymn_lookup_key($lookupByKey, $hymnNumber, $hymnId);
-        }
-
-        if ($title !== '') {
-            oflc_update_register_hymn_lookup_key($lookupByKey, $title, $hymnId);
-        }
-    }
-
-    return [
-        'suggestions' => array_values($suggestions),
-        'lookup_by_key' => $lookupByKey,
-        'tune_by_id' => $tuneById,
-    ];
-}
-
-function oflc_update_fetch_observances_by_logic_keys(PDO $pdo, array $logicKeys): array
-{
-    $logicKeys = array_values(array_unique(array_filter(array_map(static function ($value): string {
-        return trim((string) $value);
-    }, $logicKeys), static function (string $value): bool {
-        return $value !== '';
-    })));
-
-    if ($logicKeys === []) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($logicKeys), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT lc.id, lc.name, lc.logic_key, COUNT(rs.id) AS reading_set_count
-         FROM liturgical_calendar lc
-         LEFT JOIN reading_sets rs ON rs.liturgical_calendar_id = lc.id AND rs.is_active = 1
-         WHERE lc.is_active = 1
-           AND lc.logic_key IN (' . $placeholders . ')
-         GROUP BY lc.id, lc.name, lc.logic_key
-         ORDER BY lc.name'
-    );
-    $stmt->execute($logicKeys);
-
-    return $stmt->fetchAll();
-}
-
-function oflc_update_planning_logic_columns_ready(PDO $pdo): bool
-{
-    static $ready = null;
-
-    if ($ready !== null) {
-        return $ready;
-    }
-
-    $columns = $pdo->query('SHOW COLUMNS FROM liturgical_calendar')->fetchAll(PDO::FETCH_COLUMN);
-    $ready = in_array('logic_key', $columns, true);
-
-    return $ready;
-}
-
 function oflc_update_humanize_logic_key(string $logicKey): string
 {
     $label = str_replace('_', ' ', $logicKey);
@@ -1031,95 +559,6 @@ function oflc_update_format_short_weekday(DateTimeImmutable $date): string
         default:
             return '';
     }
-}
-
-function oflc_update_fetch_logic_key_name_map(PDO $pdo, array $logicKeys): array
-{
-    $logicKeys = array_values(array_unique(array_filter(array_map(static function ($value): string {
-        return trim((string) $value);
-    }, $logicKeys), static function (string $value): bool {
-        return $value !== '';
-    })));
-
-    if ($logicKeys === []) {
-        return [];
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($logicKeys), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT logic_key, name
-         FROM liturgical_calendar
-         WHERE is_active = 1
-           AND logic_key IN (' . $placeholders . ')
-         ORDER BY id'
-    );
-    $stmt->execute($logicKeys);
-
-    $nameMap = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $logicKey = trim((string) ($row['logic_key'] ?? ''));
-        if ($logicKey !== '' && !isset($nameMap[$logicKey])) {
-            $nameMap[$logicKey] = (string) ($row['name'] ?? '');
-        }
-    }
-
-    return $nameMap;
-}
-
-function oflc_update_fetch_observance_detail(PDO $pdo, string $logicKey): ?array
-{
-    $stmt = $pdo->prepare(
-        'SELECT id, name, latin_name, logic_key, season, liturgical_color, notes
-         FROM liturgical_calendar
-         WHERE is_active = 1
-           AND logic_key = ?
-         ORDER BY id
-         LIMIT 1'
-    );
-    $stmt->execute([$logicKey]);
-    $observance = $stmt->fetch();
-
-    if (!$observance) {
-        return null;
-    }
-
-    $readingsStmt = $pdo->prepare(
-        'SELECT id, set_name, year_pattern, old_testament, psalm, epistle, gospel
-         FROM reading_sets
-         WHERE liturgical_calendar_id = ?
-           AND is_active = 1
-         ORDER BY id'
-    );
-    $readingsStmt->execute([(int) $observance['id']]);
-
-    return [
-        'observance' => $observance,
-        'reading_sets' => $readingsStmt->fetchAll(),
-    ];
-}
-
-function oflc_update_fetch_recently_celebrated_observance_ids(PDO $pdo, DateTimeImmutable $selectedDate): array
-{
-    $stmt = $pdo->prepare(
-        'SELECT liturgical_calendar_id
-         FROM service_db
-         WHERE is_active = 1
-           AND liturgical_calendar_id IS NOT NULL
-           AND service_date < ?
-         ORDER BY service_date DESC, id DESC
-         LIMIT 2'
-    );
-    $stmt->execute([$selectedDate->format('Y-m-d')]);
-
-    $ids = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
-        $id = (int) $id;
-        if ($id > 0) {
-            $ids[$id] = true;
-        }
-    }
-
-    return $ids;
 }
 
 function oflc_update_normalize_selected_reading_set_id($value): ?int
@@ -1426,139 +865,6 @@ function oflc_update_build_observance_catalog_payload(array $detailsById): array
     return $payload;
 }
 
-function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, string $selectedOptionKey = ''): array
-{
-    $choices = [];
-    $detailsByKey = [];
-    $dateError = null;
-
-    if ($selectedDate === '') {
-        return [
-            'choices' => $choices,
-            'details_by_key' => $detailsByKey,
-            'date_error' => $dateError,
-        ];
-    }
-
-    $window = oflc_get_liturgical_window($selectedDate, 6, 6);
-    if ($window === null) {
-        return [
-            'choices' => $choices,
-            'details_by_key' => $detailsByKey,
-            'date_error' => 'Please enter a valid date in YYYY-MM-DD format.',
-        ];
-    }
-
-    $selectedDateObject = DateTimeImmutable::createFromFormat('Y-m-d', $selectedDate) ?: null;
-    $recentlyCelebratedObservanceIds = $selectedDateObject instanceof DateTimeImmutable
-        ? oflc_update_fetch_recently_celebrated_observance_ids($pdo, $selectedDateObject)
-        : [];
-
-    if (oflc_update_planning_logic_columns_ready($pdo)) {
-        $logicKeysForNames = [];
-
-        foreach ($window['entries'] as $entry) {
-            foreach (oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']) as $logicKey) {
-                $logicKeysForNames[] = $logicKey;
-            }
-
-            if ($entry['is_sunday']) {
-                foreach (oflc_resolve_movable_logic_keys($entry['week'], 0) as $logicKey) {
-                    $logicKeysForNames[] = $logicKey;
-                }
-            }
-        }
-
-        $logicKeyNameMap = oflc_update_fetch_logic_key_name_map($pdo, $logicKeysForNames);
-        $sundayChoices = [];
-        $feastChoices = [];
-
-        foreach ($window['entries'] as $entry) {
-            $weekdayDate = DateTimeImmutable::createFromFormat('Y-m-d', $entry['date']);
-            $festivalKeys = oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']);
-            foreach ($festivalKeys as $logicKey) {
-                $festivalMatches = oflc_update_fetch_observances_by_logic_keys($pdo, [$logicKey]);
-                $festivalObservanceId = (int) ($festivalMatches[0]['id'] ?? 0);
-                if ($festivalObservanceId > 0 && isset($recentlyCelebratedObservanceIds[$festivalObservanceId])) {
-                    continue;
-                }
-
-                $festivalName = $logicKeyNameMap[$logicKey] ?? oflc_update_humanize_logic_key($logicKey);
-                $festivalDayLabel = $weekdayDate instanceof DateTimeImmutable ? oflc_update_format_short_weekday($weekdayDate) : '';
-                $festivalCalendarDayLabel = $weekdayDate instanceof DateTimeImmutable ? $weekdayDate->format('n/j') : $entry['date'];
-                $feastChoices[$logicKey] = [
-                    'logic_key' => $logicKey,
-                    'is_sunday' => false,
-                    'label' => $festivalName . ' (' . trim($festivalDayLabel . ' ' . $festivalCalendarDayLabel) . ')',
-                    'suggestion_label' => $festivalName . ' (' . trim($festivalDayLabel . ' ' . $festivalCalendarDayLabel) . ')',
-                    'date' => $entry['date'],
-                ];
-            }
-
-            if ($entry['is_sunday']) {
-                $sundayKeys = oflc_resolve_movable_logic_keys($entry['week'], 0);
-                foreach ($sundayKeys as $logicKey) {
-                    $sundayName = $logicKeyNameMap[$logicKey] ?? oflc_update_humanize_logic_key($logicKey);
-                    $sundayChoices[$logicKey] = [
-                        'logic_key' => $logicKey,
-                        'is_sunday' => true,
-                        'label' => $sundayName . ' (' . ($weekdayDate instanceof DateTimeImmutable ? $weekdayDate->format('m/d') : $entry['date']) . ')',
-                        'suggestion_label' => $sundayName,
-                        'date' => $entry['date'],
-                    ];
-                }
-            }
-        }
-
-        $choiceSort = static function (array $first, array $second): int {
-            $dateCompare = strcmp((string) ($first['date'] ?? ''), (string) ($second['date'] ?? ''));
-            if ($dateCompare !== 0) {
-                return $dateCompare;
-            }
-
-            return strcmp((string) ($first['label'] ?? ''), (string) ($second['label'] ?? ''));
-        };
-        uasort($sundayChoices, $choiceSort);
-        uasort($feastChoices, $choiceSort);
-        $choices = $sundayChoices + $feastChoices;
-    }
-
-    if ($selectedOptionKey !== '' && !isset($choices[$selectedOptionKey])) {
-        $detail = oflc_update_fetch_observance_detail($pdo, $selectedOptionKey);
-        if ($detail !== null) {
-            $choices[$selectedOptionKey] = [
-                'logic_key' => $selectedOptionKey,
-                'label' => trim((string) ($detail['observance']['name'] ?? $selectedOptionKey)),
-            ];
-        }
-    }
-
-    foreach (array_keys($choices) as $logicKey) {
-        $detail = oflc_update_fetch_observance_detail($pdo, $logicKey);
-        if ($detail !== null) {
-            $detailsByKey[$logicKey] = $detail;
-        }
-    }
-
-    return [
-        'choices' => array_values($choices),
-        'details_by_key' => $detailsByKey,
-        'date_error' => $dateError,
-    ];
-}
-
-function oflc_update_build_date_observance_suggestion_payload(PDO $pdo, string $selectedDate): array
-{
-    $optionData = oflc_update_build_service_option_data($pdo, $selectedDate);
-    $choices = $optionData['choices'] ?? [];
-    $detailsByKey = $optionData['details_by_key'] ?? [];
-
-    return [
-        'suggestions' => oflc_service_build_date_observance_suggestions($choices),
-        'lookup' => oflc_service_build_observance_suggestion_lookup($choices, $detailsByKey),
-    ];
-}
-
 function oflc_update_build_hymn_field_definitions(?array $serviceSettingDetail, array $hymnSlots): array
 {
     $abbreviation = trim((string) ($serviceSettingDetail['abbreviation'] ?? ''));
@@ -1713,7 +1019,7 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
     foreach ($usageRows as $row) {
         $slotName = oflc_update_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
         $displaySortOrder = (int) ($row['sort_order'] ?? 0);
-        $label = oflc_update_format_hymn_suggestion_label($row);
+        $label = oflc_service_db_format_hymn_label($row);
         $targetIndex = null;
 
         if ($label === '') {
@@ -2083,23 +1389,23 @@ function oflc_update_resolve_hymn_id(string $value, array $lookupByKey): ?int
 
 $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-$serviceSettings = oflc_update_fetch_service_settings($pdo);
+$serviceSettings = oflc_service_db_fetch_service_settings($pdo);
 $serviceSettingCatalogPayload = oflc_update_build_service_setting_catalog_payload($serviceSettings);
 $serviceSettingsById = [];
 foreach ($serviceSettings as $serviceSetting) {
     $serviceSettingsById[(string) $serviceSetting['id']] = $serviceSetting;
 }
 
-$hymnSlots = oflc_update_fetch_hymn_slots($pdo);
-$leaders = oflc_update_fetch_leaders($pdo);
-$allLeaders = oflc_update_fetch_leaders($pdo, true);
+$hymnSlots = oflc_service_db_fetch_hymn_slots($pdo);
+$leaders = oflc_service_db_fetch_leaders($pdo);
+$allLeaders = oflc_service_db_fetch_leaders($pdo, true);
 $leadersByLastName = oflc_update_build_leader_lookup($leaders);
 $allLeadersByLastName = oflc_update_build_leader_lookup($allLeaders);
-$hymnCatalog = oflc_update_fetch_hymn_catalog($pdo);
-$allHymnCatalog = oflc_update_fetch_hymn_catalog($pdo, true);
-$smallCatechismOptions = oflc_update_fetch_small_catechism_options($pdo);
+$hymnCatalog = oflc_service_db_fetch_hymn_catalog($pdo);
+$allHymnCatalog = oflc_service_db_fetch_hymn_catalog($pdo, true);
+$smallCatechismOptions = oflc_service_db_fetch_small_catechism_options($pdo);
 $smallCatechismLookup = oflc_update_build_small_catechism_lookup($smallCatechismOptions);
-$passionReadingOptions = oflc_update_fetch_passion_reading_options($pdo);
+$passionReadingOptions = oflc_service_db_fetch_passion_reading_options($pdo);
 $passionReadingById = [];
 foreach ($passionReadingOptions as $passionReadingOption) {
     $passionReadingId = (int) ($passionReadingOption['id'] ?? 0);
@@ -2342,15 +1648,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
 
     $errors = [];
 
-    $servicePlaceholders = implode(', ', array_fill(0, count($targetServiceIds), '?'));
-    $serviceStmt = $pdo->prepare(
-        'SELECT id, service_date, service_order, leader_id
-         FROM service_db
-         WHERE id IN (' . $servicePlaceholders . ')
-           AND is_active = 1'
-    );
-    $serviceStmt->execute($targetServiceIds);
-    $serviceRows = $serviceStmt->fetchAll();
+    $serviceRows = oflc_service_db_fetch_active_service_rows_by_id($pdo, $targetServiceIds);
     $serviceRowsById = [];
     foreach ($serviceRows as $serviceRow) {
         $serviceRowsById[(int) ($serviceRow['id'] ?? 0)] = $serviceRow;
@@ -2590,22 +1888,12 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         }
 
         if ($errors === []) {
-            $conflictStmt = $pdo->prepare(
-                'SELECT COUNT(*)
-                 FROM service_db
-                 WHERE is_active = 1
-                   AND service_date = ?
-                   AND service_order = ?
-                   AND id NOT IN (' . $servicePlaceholders . ')'
-            );
-
             foreach ($serviceRowsById as $targetRowId => $serviceRow) {
-                $conflictStmt->execute(array_merge([
+                if (oflc_service_db_has_active_service_conflict($pdo,
                     $targetServiceDates[$targetRowId] ?? $serviceDateObject->format('Y-m-d'),
                     (int) $serviceRow['service_order'],
-                ], $targetServiceIds));
-
-                if ((int) $conflictStmt->fetchColumn() > 0) {
+                    $targetServiceIds
+                )) {
                     $errors[] = 'Another active service already uses one of those dates and orders.';
                     break;
                 }
@@ -2737,7 +2025,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                     ) ?? $persistedObservanceDetail;
                 }
             } elseif ($hasDraftReadings && is_array($draftOne) && $selectedReadingSetId !== null) {
-                oflc_update_existing_reading_set(
+                oflc_service_db_update_existing_reading_set(
                     $pdo,
                     $selectedReadingSetId,
                     (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
@@ -2749,77 +2037,6 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
             if ($persistedSelectedReadingSetId === null && count($insertedReadingSetIds) === 1) {
                 $persistedSelectedReadingSetId = (int) reset($insertedReadingSetIds);
             }
-
-            $updateServiceStmt = $pdo->prepare(
-                'UPDATE service_db
-                 SET service_date = :service_date,
-                     liturgical_calendar_id = :liturgical_calendar_id,
-                     passion_reading_id = :passion_reading_id,
-                     small_catechism_id = :small_catechism_id,
-                     selected_reading_set_id = :selected_reading_set_id,
-                     service_setting_id = :service_setting_id,
-                     leader_id = :leader_id,
-                     copied_from_service_id = :copied_from_service_id,
-                     last_updated = :last_updated
-                 WHERE id = :id
-                   AND is_active = 1'
-            );
-
-            $deactivateUsageStmt = $pdo->prepare(
-                'UPDATE hymn_usage_db
-                 SET is_active = 0,
-                     last_updated = :last_updated
-                 WHERE sunday_id = :service_id
-                   AND is_active = 1'
-            );
-
-            $deactivateSmallCatechismStmt = $pdo->prepare(
-                'UPDATE service_small_catechism_db
-                 SET is_active = 0,
-                     last_updated = :last_updated
-                 WHERE service_id = :service_id
-                   AND is_active = 1'
-            );
-            $deactivatePassionReadingStmt = null;
-            if (oflc_update_service_passion_reading_table_exists($pdo)) {
-                $deactivatePassionReadingStmt = $pdo->prepare(
-                    'UPDATE service_passion_reading_db
-                     SET is_active = 0,
-                         last_updated = :last_updated
-                     WHERE service_id = :service_id
-                       AND is_active = 1'
-                );
-            }
-
-            $insertUsageStmt = $pdo->prepare(
-                'INSERT INTO hymn_usage_db (
-                    sunday_id,
-                    hymn_id,
-                    slot_id,
-                    sort_order,
-                    stanzas,
-                    version_number,
-                    created_at,
-                    last_updated,
-                    is_active
-                 ) VALUES (
-                    :sunday_id,
-                    :hymn_id,
-                    :slot_id,
-                    :sort_order,
-                    :stanzas,
-                    :version_number,
-                    :created_at,
-                    :last_updated,
-                    1
-                 )'
-            );
-
-            $nextVersionStmt = $pdo->prepare(
-                'SELECT COALESCE(MAX(version_number), 0) + 1
-                 FROM hymn_usage_db
-                 WHERE sunday_id = ?'
-            );
 
             foreach ($targetServiceIds as $targetRowId) {
                 $targetServiceRow = $serviceRowsById[$targetRowId] ?? null;
@@ -2840,54 +2057,25 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                     }
                 }
 
-                $updateServiceStmt->execute([
-                    ':id' => $targetRowId,
-                    ':service_date' => $targetServiceDates[$targetRowId] ?? ($serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject->format('Y-m-d') : null),
-                    ':liturgical_calendar_id' => $liturgicalCalendarId,
-                    ':passion_reading_id' => $passionReadingId,
-                    ':small_catechism_id' => $smallCatechismId,
-                    ':selected_reading_set_id' => $persistedSelectedReadingSetId,
-                    ':service_setting_id' => $serviceSettingId !== '' ? (int) $serviceSettingId : null,
-                    ':leader_id' => $targetLeaderId,
-                    ':copied_from_service_id' => $copiedFromServiceId,
-                    ':last_updated' => $today,
+                oflc_service_db_update_service($pdo, $targetRowId, [
+                    'service_date' => $targetServiceDates[$targetRowId] ?? ($serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject->format('Y-m-d') : null),
+                    'liturgical_calendar_id' => $liturgicalCalendarId,
+                    'passion_reading_id' => $passionReadingId,
+                    'small_catechism_id' => $smallCatechismId,
+                    'selected_reading_set_id' => $persistedSelectedReadingSetId,
+                    'service_setting_id' => $serviceSettingId !== '' ? (int) $serviceSettingId : null,
+                    'leader_id' => $targetLeaderId,
+                    'copied_from_service_id' => $copiedFromServiceId,
+                    'last_updated' => $today,
                 ]);
 
-                $nextVersionStmt->execute([$targetRowId]);
-                $nextVersion = (int) $nextVersionStmt->fetchColumn();
-                if ($nextVersion <= 0) {
-                    $nextVersion = 1;
-                }
-
-                $deactivateUsageStmt->execute([
-                    ':last_updated' => $today,
-                    ':service_id' => $targetRowId,
-                ]);
-                $deactivateSmallCatechismStmt->execute([
-                    ':last_updated' => $today,
-                    ':service_id' => $targetRowId,
-                ]);
-                if ($deactivatePassionReadingStmt !== null) {
-                    $deactivatePassionReadingStmt->execute([
-                        ':last_updated' => $today,
-                        ':service_id' => $targetRowId,
-                    ]);
-                }
-                oflc_update_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $today);
-                oflc_update_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $today);
-
-                foreach ($hymnEntries as $entry) {
-                    $insertUsageStmt->execute([
-                        ':sunday_id' => $targetRowId,
-                        ':hymn_id' => $entry['hymn_id'],
-                        ':slot_id' => $entry['slot_id'],
-                        ':sort_order' => $entry['sort_order'],
-                        ':stanzas' => $entry['stanzas'],
-                        ':version_number' => $nextVersion,
-                        ':created_at' => $today,
-                        ':last_updated' => $today,
-                    ]);
-                }
+                $nextVersion = oflc_service_db_fetch_next_hymn_usage_version($pdo, $targetRowId);
+                oflc_service_db_deactivate_hymn_usage($pdo, $targetRowId, $today);
+                oflc_service_db_deactivate_service_small_catechism_links($pdo, $targetRowId, $today);
+                oflc_service_db_deactivate_service_passion_reading_links($pdo, $targetRowId, $today);
+                oflc_service_db_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $today);
+                oflc_service_db_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $today);
+                oflc_service_db_insert_hymn_usage_rows($pdo, $targetRowId, $hymnEntries, $today, $nextVersion);
             }
 
             $pdo->commit();
@@ -2905,8 +2093,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 return $value !== null && $value !== '';
             });
 
-            header('Location: update-service.php?' . http_build_query($redirectQuery), true, 303);
-            exit;
+            $updatedServiceId = $serviceId;
+            $activeExpandedServiceId = $serviceId;
+
+            if (!$isAjaxRequest) {
+                header('Location: update-service.php?' . http_build_query($redirectQuery), true, 303);
+                exit;
+            }
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -2919,76 +2112,16 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     $formErrorsByServiceId[$serviceId] = $errors;
 }
 
-$serviceStatement = $pdo->query(
-    'SELECT
-        s.id,
-        s.service_date,
-        s.service_order,
-        s.service_setting_id,
-        s.leader_id,
-        s.small_catechism_id,
-        s.passion_reading_id,
-        s.selected_reading_set_id,
-        s.copied_from_service_id,
-        s.liturgical_calendar_id,
-        lc.name AS observance_name,
-        lc.latin_name,
-        lc.logic_key,
-        lc.liturgical_color,
-        ss.setting_name,
-        ss.abbreviation,
-        ss.page_number,
-        l.last_name AS leader_last_name
-     FROM service_db s
-     LEFT JOIN liturgical_calendar lc ON lc.id = s.liturgical_calendar_id
-     LEFT JOIN service_settings_db ss ON ss.id = s.service_setting_id
-     LEFT JOIN leaders l ON l.id = s.leader_id
-     WHERE s.is_active = 1
-     ORDER BY s.service_date ' . ($sortOrder === 'asc' ? 'ASC' : 'DESC') . ', s.service_order ' . ($sortOrder === 'asc' ? 'ASC' : 'DESC') . ', s.id ' . ($sortOrder === 'asc' ? 'ASC' : 'DESC')
-);
-$services = $serviceStatement->fetchAll();
+$services = oflc_service_db_fetch_update_services($pdo, $sortOrder);
 
 $serviceIds = array_map(static function (array $row): int {
     return (int) $row['id'];
 }, $services);
 
-$smallCatechismLabelsByService = oflc_update_fetch_small_catechism_labels_by_service($pdo, $serviceIds);
-$passionReadingIdsByService = oflc_update_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
+$smallCatechismLabelsByService = oflc_service_db_fetch_small_catechism_labels_by_service($pdo, $serviceIds);
+$passionReadingIdsByService = oflc_service_db_fetch_passion_reading_ids_by_service($pdo, $serviceIds);
 
-$hymnRowsByService = [];
-if ($serviceIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $hymnStatement = $pdo->prepare(
-        'SELECT
-            hu.sunday_id AS service_id,
-            hu.slot_id,
-            hs.slot_name,
-            hu.sort_order,
-            hu.version_number,
-            hu.stanzas,
-            hd.id AS hymn_id,
-            hd.hymnal,
-            hd.hymn_number,
-            hd.hymn_title,
-            hd.insert_use
-         FROM hymn_usage_db hu
-         LEFT JOIN hymn_slot_db hs ON hs.id = hu.slot_id
-         LEFT JOIN hymn_db hd ON hd.id = hu.hymn_id
-         WHERE hu.is_active = 1
-           AND hu.sunday_id IN (' . $placeholders . ')
-         ORDER BY hu.sunday_id ASC, hu.sort_order ASC, hu.id ASC'
-    );
-    $hymnStatement->execute($serviceIds);
-
-    foreach ($hymnStatement->fetchAll() as $hymnRow) {
-        $serviceId = (int) ($hymnRow['service_id'] ?? 0);
-        if (!isset($hymnRowsByService[$serviceId])) {
-            $hymnRowsByService[$serviceId] = [];
-        }
-
-        $hymnRowsByService[$serviceId][] = $hymnRow;
-    }
-}
+$hymnRowsByService = oflc_service_db_fetch_update_hymn_rows_by_service($pdo, $serviceIds);
 
 $allScheduleGroups = oflc_update_group_schedule_services($services);
 $scheduleGroups = $allScheduleGroups;
@@ -3474,7 +2607,7 @@ include 'includes/header.php';
                                     >
                                 </div>
                                 <div class="update-service-panel-actions">
-                                    <button type="submit" class="add-hymn-button">Update Service</button>
+                                    <button type="button" class="add-hymn-button js-update-service-submit" onclick="return window.oflcUpdateServiceClick ? window.oflcUpdateServiceClick(this) : false;">Update Service</button>
                                 </div>
                                 <?php
                                 $plannerLeadersHtml = ob_get_clean();
@@ -3587,6 +2720,7 @@ include 'includes/header.php';
     var searchData = { forms_by_id: {}, search_labels: [], id_by_label: {}, id_by_lookup: {} };
     var requestController = null;
     var filterDismissHandler = null;
+    var suppressInitialSearchSync = false;
 
     function escapeHtml(value) {
         return String(value)
@@ -3734,6 +2868,58 @@ include 'includes/header.php';
         return action + '?' + params.toString();
     }
 
+    function buildPostSaveRefreshUrl(form) {
+        var actionUrl;
+        var serviceIdInput;
+        var rubricYearInput;
+        var startDateInput;
+        var endDateInput;
+        var sortOrderInput;
+        var returnSearchInput;
+        var serviceId;
+        var searchValue;
+        var params;
+
+        actionUrl = form ? (form.getAttribute('action') || 'update-service.php') : 'update-service.php';
+        serviceIdInput = form ? form.querySelector('input[name="service_id"]') : null;
+        rubricYearInput = form ? form.querySelector('input[name="return_rubric_year"]') : null;
+        startDateInput = form ? form.querySelector('input[name="return_start_date"]') : null;
+        endDateInput = form ? form.querySelector('input[name="return_end_date"]') : null;
+        sortOrderInput = form ? form.querySelector('input[name="return_sort_order"]') : null;
+        returnSearchInput = form ? form.querySelector('input[name="return_search"]') : null;
+        serviceId = String(serviceIdInput && serviceIdInput.value ? serviceIdInput.value : '').trim();
+        searchValue = String(returnSearchInput && returnSearchInput.value ? returnSearchInput.value : '').trim();
+        params = new URLSearchParams();
+
+        if (searchValue !== '') {
+            params.set('rubric_year', '');
+            params.set('start_date', '');
+            params.set('end_date', '');
+        } else {
+            if (rubricYearInput && String(rubricYearInput.value || '').trim() !== '') {
+                params.set('rubric_year', String(rubricYearInput.value || '').trim());
+            }
+            if (startDateInput && String(startDateInput.value || '').trim() !== '') {
+                params.set('start_date', String(startDateInput.value || '').trim());
+            }
+            if (endDateInput && String(endDateInput.value || '').trim() !== '') {
+                params.set('end_date', String(endDateInput.value || '').trim());
+            }
+        }
+        if (sortOrderInput && String(sortOrderInput.value || '').trim() !== '') {
+            params.set('sort_order', String(sortOrderInput.value || '').trim());
+        }
+        if (searchValue !== '') {
+            params.set('search', searchValue);
+        }
+        if (serviceId !== '') {
+            params.set('expanded_service', serviceId);
+            params.set('updated_service', serviceId);
+        }
+
+        return actionUrl + (params.toString() ? '?' + params.toString() : '');
+    }
+
     function applySearchFilter() {
         var query = String((searchInput && searchInput.value) || '').trim().toLowerCase();
 
@@ -3815,17 +3001,12 @@ include 'includes/header.php';
 
         targetWrap = document.getElementById('service-' + String(formMeta.id || ''));
         if (!targetWrap) {
-            requestUpdateService(buildSearchNavigationUrl(formMeta));
             return;
         }
 
         targetDetails = targetWrap.closest('details');
         if (targetDetails) {
             targetDetails.open = true;
-        }
-
-        if (formMeta.search_label && searchInput) {
-            searchInput.value = String(formMeta.search_label);
         }
 
         queueExpandedRowScroll(targetDetails, 'smooth');
@@ -3839,6 +3020,11 @@ include 'includes/header.php';
 
     function bindUpdateServiceRows() {
         Array.prototype.forEach.call(searchRows, function (row) {
+            if (row.getAttribute('data-update-service-row-bound') === '1') {
+                return;
+            }
+            row.setAttribute('data-update-service-row-bound', '1');
+
             row.addEventListener('toggle', function () {
                 if (row.open) {
                     queueExpandedRowScroll(row, 'smooth');
@@ -4027,6 +3213,7 @@ include 'includes/header.php';
         var separateThursdayAlertTitle = form.querySelector('.js-separate-thursday-alert-title');
         var separateThursdayYes = form.querySelector('.js-separate-thursday-yes');
         var separateThursdayNo = form.querySelector('.js-separate-thursday-no');
+        var updateServiceSubmitButton = form.querySelector('.js-update-service-submit');
         var activeHymnSuggestionsId = form.getAttribute('data-active-hymn-suggestions-id') || '';
         var allHymnSuggestionsId = form.getAttribute('data-all-hymn-suggestions-id') || activeHymnSuggestionsId;
         var lookupToday = form.getAttribute('data-lookup-today') || '';
@@ -4053,6 +3240,11 @@ include 'includes/header.php';
             order: [],
             next_extra_id: 1
         };
+
+        if (form.getAttribute('data-update-service-bound') === '1') {
+            return;
+        }
+        form.setAttribute('data-update-service-bound', '1');
 
         try {
             readingDraftState = cloneReadingDrafts(JSON.parse(form.getAttribute('data-initial-reading-editor') || '[]'));
@@ -4948,12 +4140,12 @@ include 'includes/header.php';
         }
 
         function bindExtraHymnSlotBehavior(scope, serviceId) {
-            var slotInputs = scope.querySelectorAll('.js-extra-hymn-slot-input');
+            var slotButtons = scope.querySelectorAll('.js-extra-hymn-slot-button');
             var definitions = hymnDefinitionsByService[serviceId] || [];
             var layoutMode = getHymnLayoutMode(definitions);
 
-            Array.prototype.forEach.call(slotInputs, function (input) {
-                var anchor = input.closest('.service-card-suggestion-anchor');
+            Array.prototype.forEach.call(slotButtons, function (button) {
+                var anchor = button.closest('.service-card-suggestion-anchor');
                 var list = anchor ? anchor.querySelector('.js-extra-hymn-slot-suggestion-list') : null;
                 var hidden = anchor ? anchor.querySelector('.js-extra-hymn-slot-hidden') : null;
 
@@ -4967,11 +4159,13 @@ include 'includes/header.php';
 
                 function syncSlot(value) {
                     var slotValue = String(value || '').trim().toLowerCase() === 'distribution' ? 'Distribution Hymn' : 'Other Hymn';
-                    var row = input.closest('.service-card-hymn-row');
+                    var row = button.closest('.service-card-hymn-row');
                     var previousSlotValue = row ? (row.getAttribute('data-extra-slot-name') || 'Other Hymn') : 'Other Hymn';
 
                     slotValue = normalizeExtraHymnSlotNameForLayout(slotValue, layoutMode);
-                    input.value = slotValue === 'Distribution Hymn' ? 'Distribution' : 'Other';
+                    button.textContent = slotValue === 'Distribution Hymn' ? 'D' : 'O';
+                    button.setAttribute('title', slotValue === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn');
+                    button.setAttribute('aria-label', slotValue === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn');
                     if (hidden) {
                         hidden.value = slotValue;
                     }
@@ -4985,11 +4179,16 @@ include 'includes/header.php';
                 }
 
                 function syncSlotAndRefresh(value) {
+                    var row = button.closest('.service-card-hymn-row');
+                    var labelInput = row ? row.querySelector('.service-card-hymn-lookup-extra') : null;
                     var slotChanged = syncSlot(value);
 
                     closeSlotOptions();
                     if (slotChanged) {
-                        renderHymnPane(serviceId);
+                        if (labelInput) {
+                            labelInput.setAttribute('placeholder', hidden && hidden.value === 'Distribution Hymn' ? 'Distribution Hymn' : 'Additional hymn');
+                        }
+                        captureHymnState();
                     }
                 }
 
@@ -5020,17 +4219,8 @@ include 'includes/header.php';
                     list.classList.add('is-visible');
                 }
 
-                input.addEventListener('focus', showSlotOptions);
-                input.addEventListener('click', showSlotOptions);
-                input.addEventListener('input', showSlotOptions);
-                input.addEventListener('change', function () {
-                    syncSlotAndRefresh(input.value);
-                });
-                input.addEventListener('blur', function () {
-                    window.setTimeout(function () {
-                        syncSlotAndRefresh(input.value);
-                    }, 120);
-                });
+                syncSlot(hidden ? hidden.value : 'Other Hymn');
+                button.addEventListener('click', showSlotOptions);
             });
         }
 
@@ -5344,7 +4534,7 @@ include 'includes/header.php';
                 if (meta.kind === 'base') {
                     stanzaHtml =
                         '<input type="hidden" name="hymn_stanzas[' + escapeHtml(meta.originalIndex) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
-                        '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>';
+                        '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(meta.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">S</button>';
 
                     html +=
                         '<div class="service-card-hymn-row" data-row-key="' + escapeHtml(meta.key) + '" data-row-kind="base" draggable="false">' +
@@ -5368,10 +4558,10 @@ include 'includes/header.php';
                         '<input type="hidden" name="extra_hymn_keys[]" value="' + escapeHtml(extraRow.key) + '">' +
                         '<input type="text" name="extra_hymn_values[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + escapeHtml(getCurrentHymnSuggestionsId()) + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
                         '<input type="hidden" name="extra_hymn_stanzas[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
-                        '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">s</button>' +
+                        '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">S</button>' +
                         '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
                             '<input type="hidden" class="js-extra-hymn-slot-hidden" name="extra_hymn_slots[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.slot_name) + '">' +
-                            '<input type="text" class="service-card-text service-card-hymn-slot-input js-extra-hymn-slot-input" value="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution' : 'Other') + '" autocomplete="off">' +
+                            '<button type="button" class="service-card-hymn-slot-button js-extra-hymn-slot-button" aria-label="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '" title="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '">' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'D' : 'O') + '</button>' +
                             '<div class="service-card-suggestion-list js-extra-hymn-slot-suggestion-list" hidden></div>' +
                         '</div>' +
                         '<button type="button" class="service-card-remove-hymn-button" data-remove-row-key="' + escapeHtml(extraRow.key) + '" aria-label="Remove hymn">&times;</button>' +
@@ -5894,6 +5084,8 @@ include 'includes/header.php';
             ? String(options.preserveSearchValue || '')
             : '';
         var preserveSearchFocus = !!(options && options.preserveSearchFocus);
+        var reapplySearchFilter = !(options && options.reapplySearchFilter === false);
+        var unhideRows = !!(options && options.unhideRows);
 
         if (!nextRoot || !currentRoot) {
             window.location.href = url;
@@ -5902,13 +5094,22 @@ include 'includes/header.php';
 
         currentRoot.replaceWith(nextRoot);
         refreshUpdateServiceDomReferences();
+        suppressInitialSearchSync = !!(options && options.reapplySearchFilter === false);
         bindUpdateServiceRows();
         bindUpdateServiceForms();
         bindUpdateServiceFilters();
         bindUpdateServiceSearch();
+        suppressInitialSearchSync = false;
+        if (unhideRows) {
+            Array.prototype.forEach.call(searchRows, function (row) {
+                row.hidden = false;
+            });
+        }
         if (searchInput && preservedSearchValue !== '') {
             searchInput.value = preservedSearchValue;
-            applySearchFilter();
+            if (reapplySearchFilter) {
+                applySearchFilter();
+            }
         }
         if (searchInput && preserveSearchFocus) {
             searchInput.focus();
@@ -5917,6 +5118,51 @@ include 'includes/header.php';
             }
         }
         window.history.replaceState({}, '', getCleanUpdateServiceUrl());
+    }
+
+    function syncUpdatedServiceRowFromHtml(html, serviceId) {
+        var parser = new DOMParser();
+        var nextDocument = parser.parseFromString(html, 'text/html');
+        var currentWrap = document.getElementById('service-' + String(serviceId || ''));
+        var nextWrap = nextDocument.getElementById('service-' + String(serviceId || ''));
+        var currentRow;
+        var nextRow;
+        var currentSearchDataElement;
+        var nextSearchDataElement;
+
+        if (!currentWrap || !nextWrap) {
+            return false;
+        }
+
+        currentRow = currentWrap.closest('details.update-service-row');
+        nextRow = nextWrap.closest('details.update-service-row');
+        currentSearchDataElement = document.getElementById('update-service-search-data');
+        nextSearchDataElement = nextDocument.getElementById('update-service-search-data');
+
+        if (!currentRow || !nextRow) {
+            return false;
+        }
+
+        currentRow.replaceWith(nextRow);
+        if (currentSearchDataElement && nextSearchDataElement) {
+            currentSearchDataElement.textContent = nextSearchDataElement.textContent || '{}';
+        }
+
+        refreshUpdateServiceDomReferences();
+        bindUpdateServiceRows();
+        bindUpdateServiceForms();
+
+        currentWrap = document.getElementById('service-' + String(serviceId || ''));
+        if (currentWrap) {
+            currentRow = currentWrap.closest('details.update-service-row');
+            if (currentRow) {
+                currentRow.hidden = false;
+                currentRow.open = true;
+                queueExpandedRowScroll(currentRow, 'smooth');
+            }
+        }
+
+        return true;
     }
 
     function requestUpdateService(url, options) {
@@ -6011,7 +5257,8 @@ include 'includes/header.php';
         }).then(function (html) {
             syncUpdateServiceRoot(html, getCleanUpdateServiceUrl(), {
                 preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
-                preserveSearchFocus: false
+                preserveSearchFocus: false,
+                reapplySearchFilter: false
             });
         }).catch(function (error) {
             if (error && error.name === 'AbortError') {
@@ -6027,6 +5274,117 @@ include 'includes/header.php';
             form.submit();
         });
     }
+
+    function requestUpdateServiceSave(form) {
+        var formData;
+        var actionUrl;
+        var returnSearchInput;
+
+        if (!form) {
+            return;
+        }
+
+        returnSearchInput = form.querySelector('.js-return-search-input');
+        if (returnSearchInput && searchInput) {
+            returnSearchInput.value = String(searchInput.value || '');
+        }
+
+        formData = new FormData(form);
+        formData.delete('preview_update_service');
+        formData.delete('preview_reset_readings');
+        formData.set('update_service', '1');
+        actionUrl = form.getAttribute('action') || 'update-service.php';
+
+        if (requestController) {
+            requestController.abort();
+        }
+
+        requestController = new AbortController();
+
+        fetch(actionUrl, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            signal: requestController.signal
+        }).then(function (response) {
+            if (!response.ok) {
+                throw new Error('Request failed');
+            }
+
+            return response.text();
+        }).then(function () {
+            requestUpdateService(buildPostSaveRefreshUrl(form), {
+                preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
+                preserveSearchFocus: false,
+                reapplySearchFilter: false,
+                unhideRows: true
+            });
+        }).catch(function (error) {
+            if (error && error.name === 'AbortError') {
+                return;
+            }
+
+            form.submit();
+        });
+    }
+
+    function submitUpdateServiceForm(form) {
+        var returnSearchInput;
+        var previousThursdayToggle;
+        var linkActionFlag;
+        var separateThursdayAlert;
+        var separateThursdayAlertTitle;
+        var originalCopyState;
+
+        if (!form) {
+            return;
+        }
+
+        returnSearchInput = form.querySelector('.js-return-search-input');
+        previousThursdayToggle = form.querySelector('.js-copy-to-previous-thursday');
+        linkActionFlag = form.querySelector('.js-link-action-flag');
+        separateThursdayAlert = form.querySelector('.js-separate-thursday-alert');
+        separateThursdayAlertTitle = form.querySelector('.js-separate-thursday-alert-title');
+
+        if (returnSearchInput && searchInput) {
+            returnSearchInput.value = String(searchInput.value || '');
+        }
+
+        if (previousThursdayToggle && linkActionFlag) {
+            originalCopyState = previousThursdayToggle.getAttribute('data-original-copy') === '1';
+            if (previousThursdayToggle.checked !== originalCopyState && String(linkActionFlag.value || '').trim() === '') {
+                if (separateThursdayAlertTitle) {
+                    separateThursdayAlertTitle.textContent = originalCopyState
+                        ? 'Would you like to separate Thursday from Sunday?'
+                        : 'Would you like to unite Thursday with Sunday?';
+                }
+                if (separateThursdayAlert) {
+                    separateThursdayAlert.classList.add('is-visible');
+                }
+                return;
+            }
+        }
+
+        requestUpdateServiceSave(form);
+    }
+
+    window.oflcUpdateServiceClick = function (button) {
+        var current = button;
+        var form = null;
+
+        while (current) {
+            if (current.classList && current.classList.contains('js-update-service-form')) {
+                form = current;
+                break;
+            }
+            current = current.parentNode;
+        }
+
+        submitUpdateServiceForm(form);
+        return false;
+    };
 
     function bindUpdateServiceForms() {
         var forms = document.querySelectorAll('.js-update-service-form');
@@ -6050,6 +5408,11 @@ include 'includes/header.php';
         if (!filterRoot || !filterForm) {
             return;
         }
+
+        if (filterForm.getAttribute('data-update-service-filter-bound') === '1') {
+            return;
+        }
+        filterForm.setAttribute('data-update-service-filter-bound', '1');
 
         rubricInput = filterForm.querySelector('[data-update-service-rubric-year-input="1"]');
         rubricToggleButton = filterForm.querySelector('[data-update-service-rubric-year-toggle="1"]');
@@ -6292,6 +5655,11 @@ include 'includes/header.php';
             return;
         }
 
+        if (searchInput.getAttribute('data-update-service-search-bound') === '1') {
+            return;
+        }
+        searchInput.setAttribute('data-update-service-search-bound', '1');
+
         function clearFiltersForSearch() {
             var rawValue = String(searchInput.value || '');
 
@@ -6322,10 +5690,10 @@ include 'includes/header.php';
         });
         searchInput.addEventListener('blur', syncSearchSelection);
 
-        if (String(searchInput.value || '').trim() !== '') {
+        if (!suppressInitialSearchSync && String(searchInput.value || '').trim() !== '') {
             applySearchFilter();
             syncSearchSelection();
-        } else {
+        } else if (String(searchInput.value || '').trim() === '') {
             applySearchFilter();
         }
     }

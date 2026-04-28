@@ -1,0 +1,28 @@
+Timestamp: 2026-04-28 08:25:46
+Title: Service DB read cleanup
+
+Summary:
+- Created includes/db/service-db-read.php as the shared home for service-related DB read helpers.
+- Moved repeated read logic out of add-service.php, update-service.php, remove-service.php, and schedule.php.
+- Consolidated duplicated service setting, leader, hymn catalog, hymn slot, observance lookup, Small Catechism, Passion reading, Passion-reading link-table, schedule service, reading set, and schedule hymn reads behind oflc_service_db_* functions.
+- Kept page-specific formatting, validation, rendering, grouping, filtering, and write operations in their original service pages.
+
+Updated callers:
+- add-service.php now requires the shared read include and calls the shared read helpers.
+- update-service.php now requires the shared read include and calls the shared read helpers.
+- remove-service.php now requires the shared read include and uses the shared Passion reading option helper.
+- schedule.php now requires the shared read include and calls shared read helpers for schedule services, reading sets, hymn rows, Small Catechism abbreviations, and Passion reading data.
+- print-schedule.php continues to delegate schedule data rendering through schedule.php.
+
+Verification:
+- php -l includes/db/service-db-read.php
+- php -l add-service.php
+- php -l update-service.php
+- php -l remove-service.php
+- php -l schedule.php
+- php -l print-schedule.php
+- PHP GET render check for add-service.php
+- PHP GET render check for update-service.php
+- PHP GET render check for remove-service.php
+- PHP GET render check for schedule.php
+- PHP GET render check for print-schedule.php

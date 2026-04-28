@@ -4,6 +4,8 @@ declare(strict_types=1);
 $page_title = 'Remove/Restore Service';
 
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/db/service-db-read.php';
+require_once __DIR__ . '/includes/db/service-db-write.php';
 require_once __DIR__ . '/includes/service_observances.php';
 
 function oflc_remove_get_liturgical_color_display($color): string
@@ -57,84 +59,6 @@ function oflc_remove_clean_reading_text($text, bool $removeAntiphon = false): st
     }
 
     return trim($text);
-}
-
-function oflc_remove_fetch_small_catechism_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, chief_part, chief_part_id, question, abbreviation, question_order
-         FROM small_catechism_mysql
-         WHERE is_active = 1
-         ORDER BY chief_part_id, question_order, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $chiefPart = trim((string) ($row['chief_part'] ?? ''));
-        $question = trim((string) ($row['question'] ?? ''));
-        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-
-        $labelParts = array_values(array_filter([$chiefPart, $question], static function ($value): bool {
-            return $value !== '';
-        }));
-        $label = implode(' - ', $labelParts);
-        if ($abbreviation !== '') {
-            $label .= ($label !== '' ? ' ' : '') . '(' . $abbreviation . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[$id] = $row;
-    }
-
-    return $options;
-}
-
-function oflc_remove_fetch_passion_reading_options(PDO $pdo): array
-{
-    $stmt = $pdo->query(
-        'SELECT id, gospel, cycle_year, week_number, section_title, reference
-         FROM passion_reading_db
-         WHERE is_active = 1
-         ORDER BY gospel, cycle_year, week_number, id'
-    );
-
-    $options = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $id = (int) ($row['id'] ?? 0);
-        if ($id <= 0) {
-            continue;
-        }
-
-        $gospel = trim((string) ($row['gospel'] ?? ''));
-        $cycleYear = trim((string) ($row['cycle_year'] ?? ''));
-        $weekNumber = trim((string) ($row['week_number'] ?? ''));
-        $sectionTitle = trim((string) ($row['section_title'] ?? ''));
-        $reference = trim((string) ($row['reference'] ?? ''));
-
-        $label = $gospel;
-        if ($cycleYear !== '') {
-            $label .= ($label !== '' ? ' ' : '') . 'Year ' . $cycleYear;
-        }
-        if ($weekNumber !== '') {
-            $label .= ' Week ' . $weekNumber;
-        }
-        if ($sectionTitle !== '') {
-            $label .= ': ' . $sectionTitle;
-        }
-        if ($reference !== '') {
-            $label .= ' (' . $reference . ')';
-        }
-
-        $row['label'] = $label !== '' ? $label : (string) $id;
-        $options[$id] = $row;
-    }
-
-    return $options;
 }
 
 function oflc_remove_format_service_setting_summary(array $service): string
@@ -330,14 +254,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
-            $serviceLookupStmt = $pdo->prepare(
-                'SELECT id, is_active
-                 FROM service_db
-                 WHERE id = ?
-                 LIMIT 1'
-            );
-            $serviceLookupStmt->execute([$selectedServiceId]);
-            $serviceRow = $serviceLookupStmt->fetch();
+            $serviceRow = oflc_service_db_fetch_service_activation_row($pdo, $selectedServiceId);
 
             if (!$serviceRow) {
                 throw new RuntimeException('That service could not be found.');
@@ -347,58 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ((int) ($serviceRow['is_active'] ?? 0) === 1) {
                     $successMessage = 'Service is already active.';
                 } else {
-                    $restoreServiceStmt = $pdo->prepare(
-                        'UPDATE service_db
-                         SET is_active = 1,
-                             last_updated = :today
-                         WHERE id = :id
-                           AND is_active = 0'
-                    );
-                    $restoreHymnUsageStmt = $pdo->prepare(
-                        'UPDATE hymn_usage_db
-                         SET is_active = 1,
-                             last_updated = :today
-                         WHERE sunday_id = :service_id
-                           AND is_active = 0
-                           AND version_number = (
-                               SELECT version_number
-                               FROM (
-                                   SELECT MAX(version_number) AS version_number
-                                   FROM hymn_usage_db
-                                   WHERE sunday_id = :service_id_for_version
-                               ) AS latest_version
-                           )'
-                    );
-                    $restoreCatechismStmt = $pdo->prepare(
-                        'UPDATE service_small_catechism_db
-                         SET is_active = 1,
-                             last_updated = :today
-                         WHERE service_id = :service_id
-                           AND is_active = 0
-                           AND last_updated = (
-                               SELECT latest_last_updated
-                               FROM (
-                                   SELECT MAX(last_updated) AS latest_last_updated
-                                   FROM service_small_catechism_db
-                                   WHERE service_id = :service_id_for_last_updated
-                               ) AS latest_catechism_rows
-                           )'
-                    );
-
-                    $restoreServiceStmt->execute([
-                        ':today' => $today,
-                        ':id' => $selectedServiceId,
-                    ]);
-                    $restoreHymnUsageStmt->execute([
-                        ':today' => $today,
-                        ':service_id' => $selectedServiceId,
-                        ':service_id_for_version' => $selectedServiceId,
-                    ]);
-                    $restoreCatechismStmt->execute([
-                        ':today' => $today,
-                        ':service_id' => $selectedServiceId,
-                        ':service_id_for_last_updated' => $selectedServiceId,
-                    ]);
+                    oflc_service_db_restore_service($pdo, $selectedServiceId, $today);
 
                     $successMessage = 'Service restored.';
                 }
@@ -406,59 +272,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ((int) ($serviceRow['is_active'] ?? 0) === 0) {
                     $successMessage = 'Service is already inactive.';
                 } else {
-                    $deactivateServiceStmt = $pdo->prepare(
-                        'UPDATE service_db
-                         SET is_active = 0,
-                             last_updated = :today
-                         WHERE id = :id
-                           AND is_active = 1'
-                    );
-                    $deactivateHymnUsageStmt = $pdo->prepare(
-                        'UPDATE hymn_usage_db
-                         SET is_active = 0,
-                             last_updated = :today
-                         WHERE sunday_id = :service_id
-                           AND is_active = 1'
-                    );
-                    $deactivateCatechismStmt = $pdo->prepare(
-                        'UPDATE service_small_catechism_db
-                         SET is_active = 0,
-                             last_updated = :today
-                         WHERE service_id = :service_id
-                           AND is_active = 1'
-                    );
-                    $unlinkCopiesStmt = $pdo->prepare(
-                        'UPDATE service_db
-                         SET copied_from_service_id = NULL,
-                             last_updated = :today
-                         WHERE copied_from_service_id = :service_id'
-                    );
-
-                    $deactivateServiceStmt->execute([
-                        ':today' => $today,
-                        ':id' => $selectedServiceId,
-                    ]);
-                    $deactivateHymnUsageStmt->execute([
-                        ':today' => $today,
-                        ':service_id' => $selectedServiceId,
-                    ]);
-                    $deactivateCatechismStmt->execute([
-                        ':today' => $today,
-                        ':service_id' => $selectedServiceId,
-                    ]);
-                    $unlinkCopiesStmt->execute([
-                        ':today' => $today,
-                        ':service_id' => $selectedServiceId,
-                    ]);
+                    oflc_service_db_deactivate_service($pdo, $selectedServiceId, $today);
 
                     $successMessage = 'Service deactivated.';
                 }
             } else {
-                $deleteServiceStmt = $pdo->prepare(
-                    'DELETE FROM service_db
-                     WHERE id = ?'
-                );
-                $deleteServiceStmt->execute([$selectedServiceId]);
+                oflc_service_db_delete_service($pdo, $selectedServiceId);
                 $successMessage = 'Service deleted.';
                 $selectedServiceId = 0;
             }
@@ -476,31 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$servicesStmt = $pdo->query(
-    'SELECT
-        s.id,
-        s.service_date,
-        s.service_order,
-        s.service_setting_id,
-        s.selected_reading_set_id,
-        s.copied_from_service_id,
-        s.liturgical_calendar_id,
-        s.passion_reading_id,
-        s.is_active,
-        lc.name AS observance_name,
-        lc.latin_name,
-        lc.liturgical_color,
-        ss.setting_name,
-        ss.abbreviation,
-        ss.page_number,
-        l.last_name AS leader_last_name
-     FROM service_db s
-     LEFT JOIN liturgical_calendar lc ON lc.id = s.liturgical_calendar_id
-     LEFT JOIN service_settings_db ss ON ss.id = s.service_setting_id
-     LEFT JOIN leaders l ON l.id = s.leader_id
-     ORDER BY s.service_date DESC, s.service_order DESC, s.id DESC'
-);
-$services = $servicesStmt->fetchAll();
+$services = oflc_service_db_fetch_remove_services($pdo);
 
 $serviceIds = array_values(array_filter(array_map(static function (array $service): int {
     return (int) ($service['id'] ?? 0);
@@ -508,81 +303,11 @@ $serviceIds = array_values(array_filter(array_map(static function (array $servic
     return $serviceId > 0;
 }));
 
-$hymnRowsByService = [];
-if ($serviceIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $hymnStmt = $pdo->prepare(
-        'SELECT
-            hu.sunday_id AS service_id,
-            hs.slot_name,
-            hu.sort_order,
-            hd.hymnal,
-            hd.hymn_number,
-            hd.hymn_title
-         FROM hymn_usage_db hu
-         LEFT JOIN hymn_slot_db hs ON hs.id = hu.slot_id
-         LEFT JOIN hymn_db hd ON hd.id = hu.hymn_id
-         WHERE hu.is_active = 1
-           AND hu.sunday_id IN (' . $placeholders . ')
-         ORDER BY hu.sunday_id ASC, hs.default_sort_order ASC, hu.sort_order ASC, hu.id ASC'
-    );
-    $hymnStmt->execute($serviceIds);
-
-    foreach ($hymnStmt->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        if ($serviceId <= 0) {
-            continue;
-        }
-
-        if (!isset($hymnRowsByService[$serviceId])) {
-            $hymnRowsByService[$serviceId] = [];
-        }
-
-        $hymnRowsByService[$serviceId][] = $row;
-    }
-}
-
-$smallCatechismLabelsByService = [];
-if ($serviceIds !== []) {
-    $placeholders = implode(', ', array_fill(0, count($serviceIds), '?'));
-    $smallCatechismStmt = $pdo->prepare(
-        'SELECT
-            sc.service_id,
-            sm.chief_part,
-            sm.question,
-            sm.abbreviation
-         FROM service_small_catechism_db sc
-         INNER JOIN small_catechism_mysql sm ON sm.id = sc.small_catechism_id
-         WHERE sc.is_active = 1
-           AND sc.service_id IN (' . $placeholders . ')
-         ORDER BY sc.service_id ASC, sc.sort_order ASC, sc.id ASC'
-    );
-    $smallCatechismStmt->execute($serviceIds);
-
-    foreach ($smallCatechismStmt->fetchAll() as $row) {
-        $serviceId = (int) ($row['service_id'] ?? 0);
-        if ($serviceId <= 0) {
-            continue;
-        }
-
-        $labelParts = array_values(array_filter([
-            trim((string) ($row['chief_part'] ?? '')),
-            trim((string) ($row['question'] ?? '')),
-        ], static function ($value): bool {
-            return $value !== '';
-        }));
-        $label = implode(' - ', $labelParts);
-        $abbreviation = trim((string) ($row['abbreviation'] ?? ''));
-        if ($abbreviation !== '') {
-            $label .= ($label !== '' ? ' ' : '') . '(' . $abbreviation . ')';
-        }
-
-        $smallCatechismLabelsByService[$serviceId][] = $label !== '' ? $label : 'Small Catechism';
-    }
-}
+$hymnRowsByService = oflc_service_db_fetch_remove_hymn_rows_by_service($pdo, $serviceIds);
+$smallCatechismLabelsByService = oflc_service_db_fetch_small_catechism_labels_by_service($pdo, $serviceIds);
 
 $observanceDetailsById = oflc_service_fetch_active_observance_details($pdo);
-$passionReadingOptionsById = oflc_remove_fetch_passion_reading_options($pdo);
+$passionReadingOptionsById = oflc_service_db_fetch_passion_reading_options($pdo, true);
 $searchPayload = [
     'services_by_id' => [],
     'search_labels' => [],
