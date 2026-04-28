@@ -3212,6 +3212,11 @@ window.oflcInitializePlannerUI = function (root) {
             }).filter(function (row) {
                 return !!row;
             });
+            canonicalRows.forEach(function (row) {
+                if (row.kind === 'extra') {
+                    row.slotMenuDirection = 'down';
+                }
+            });
         } else {
             orderedKeys.forEach(function (rowKey) {
                 var row;
@@ -3251,18 +3256,18 @@ window.oflcInitializePlannerUI = function (root) {
 
             if (layoutMode === 'divine_service') {
                 appendBaseRow(1);
-                openingOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                openingOtherRows.forEach(function (row) { row.slotMenuDirection = 'down'; canonicalRows.push(row); });
                 appendBaseRow(2);
-                middleOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                middleOtherRows.forEach(function (row) { row.slotMenuDirection = 'down'; canonicalRows.push(row); });
                 [3, 4, 5, 6, 7].forEach(appendBaseRow);
-                extraDistributionRows.forEach(function (row) { canonicalRows.push(row); });
-                postDistributionOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                extraDistributionRows.forEach(function (row) { row.slotMenuDirection = 'up'; canonicalRows.push(row); });
+                postDistributionOtherRows.forEach(function (row) { row.slotMenuDirection = 'up'; canonicalRows.push(row); });
                 appendBaseRow(8);
             } else {
                 appendBaseRow(1);
-                openingOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                openingOtherRows.forEach(function (row) { row.slotMenuDirection = 'down'; canonicalRows.push(row); });
                 appendBaseRow(2);
-                middleOtherRows.forEach(function (row) { canonicalRows.push(row); });
+                middleOtherRows.forEach(function (row) { row.slotMenuDirection = 'down'; canonicalRows.push(row); });
                 appendBaseRow(3);
             }
         }
@@ -3305,6 +3310,41 @@ window.oflcInitializePlannerUI = function (root) {
         var currentServiceId = serviceSettingIdInput ? (serviceSettingIdInput.value || '') : '';
         var definitions = hymnDefinitionsByService[currentServiceId] || [];
         var layoutMode = getHymnLayoutMode(definitions);
+
+        function closeAllSlotOptions(exceptAnchor) {
+            Array.prototype.forEach.call(scope.querySelectorAll('.js-extra-hymn-slot-suggestion-list'), function (candidateList) {
+                var candidateAnchor = candidateList.closest('.service-card-suggestion-anchor');
+
+                if (exceptAnchor && candidateAnchor === exceptAnchor) {
+                    return;
+                }
+
+                candidateList.hidden = true;
+                candidateList.classList.remove('is-visible');
+                candidateList.innerHTML = '';
+            });
+        }
+
+        if (scope.getAttribute('data-extra-slot-dismiss-bound') !== '1') {
+            document.addEventListener('mousedown', function (event) {
+                if (!scope.contains(event.target)) {
+                    closeAllSlotOptions(null);
+                    return;
+                }
+
+                if (!event.target.closest('.service-card-hymn-slot-anchor')) {
+                    closeAllSlotOptions(null);
+                }
+            });
+
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') {
+                    closeAllSlotOptions(null);
+                }
+            });
+
+            scope.setAttribute('data-extra-slot-dismiss-bound', '1');
+        }
 
         Array.prototype.forEach.call(slotButtons, function (button) {
             var anchor = button.closest('.service-card-suggestion-anchor');
@@ -3355,6 +3395,12 @@ window.oflcInitializePlannerUI = function (root) {
             }
 
             function showSlotOptions() {
+                if (list && list.classList.contains('is-visible')) {
+                    closeSlotOptions();
+                    return;
+                }
+
+                closeAllSlotOptions(anchor);
                 renderSimpleSuggestionOptions(button, list, layoutMode === 'divine_service' ? ['Distribution', 'Other'] : ['Other'], function (name) {
                     syncSlotAndRefresh(name);
                 });
@@ -3898,7 +3944,7 @@ window.oflcInitializePlannerUI = function (root) {
                     '<input type="text" name="extra_hymn_values[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.value || '') + '" placeholder="' + escapeHtml(meta.label) + '" data-list-id="' + hymnSuggestionsId + '" autocomplete="off" class="service-card-hymn-lookup service-card-hymn-lookup-extra">' +
                     '<input type="hidden" name="extra_hymn_stanzas[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(meta.stanzas || '') + '" class="js-hymn-stanza-input">' +
                     '<button type="button" class="service-card-stanza-button js-hymn-stanza-button' + (meta.stanzas ? ' is-set' : '') + '" data-row-key="' + escapeHtml(extraRow.key) + '" data-row-label="' + escapeHtml(meta.label) + '" aria-label="Edit stanzas for ' + escapeHtml(meta.label) + '" title="' + escapeHtml(meta.stanzas ? 'Stanzas: ' + meta.stanzas : 'Click to add stanzas') + '">S</button>' +
-                    '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor">' +
+                    '<div class="service-card-suggestion-anchor service-card-hymn-slot-anchor' + (meta.slotMenuDirection === 'up' ? ' service-card-hymn-slot-anchor-open-up' : '') + '">' +
                         '<input type="hidden" class="js-extra-hymn-slot-hidden" name="extra_hymn_slots[' + escapeHtml(extraRow.key) + ']" value="' + escapeHtml(extraRow.slot_name) + '">' +
                         '<button type="button" class="service-card-hymn-slot-button js-extra-hymn-slot-button" aria-label="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '" title="' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'Distribution hymn' : 'Other hymn') + '">' + escapeHtml(extraRow.slot_name === 'Distribution Hymn' ? 'D' : 'O') + '</button>' +
                         '<div class="service-card-suggestion-list js-extra-hymn-slot-suggestion-list" hidden></div>' +

@@ -1,0 +1,13 @@
+# Update Log
+
+Timestamp: `2026-04-28 15:00:38`
+
+## Summary
+
+- Reworked the extra hymn slot control in `add-service.php` and `update-service.php` from a text field into a compact `O` / `D` button.
+- Kept the same slot-selection dropdown behavior, while making the hymn input wider to use the saved space.
+- Changed the stanza button label from lowercase `s` to uppercase `S`.
+- Right-aligned the `O` / `D` dropdown to its button.
+- Changed the slot dropdown placement rule so rows before the distribution block open downward, and rows after the distribution block open upward.
+- Made the `O` / `D` button toggle its dropdown open and closed.
+- Added dismissal for the `O` / `D` dropdown on outside click and `Esc`.

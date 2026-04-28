@@ -1,0 +1,18 @@
+Church Year form update completed in this pass:
+
+- Removed Calendar Date from the church-year add/update forms.
+- Removed Logic Key from the church-year add/update forms.
+- Added automatic logic-key generation in includes/db/church-year-db-write.php based on the submitted name.
+- Logic-key generation lowercases names, converts St. or St to saint, replaces punctuation/spaces with underscores, and collapses repeated underscores.
+- Existing church-year updates now leave calendar_date unchanged because it is no longer edited on the form.
+- New church-year rows insert calendar_date as NULL.
+- Added a read helper for unique active seasons from liturgical_calendar.
+- Changed the church-year Season field to a dropdown populated from those unique DB seasons.
+
+Verification:
+
+- php -l church-year.php
+- php -l includes/db/church-year-db-read.php
+- php -l includes/db/church-year-db-write.php
+- Checked logic-key generation for "St. Peter and St. Paul" -> "saint_peter_and_saint_paul".
+- Render check verified the season dropdown is present and the calendar-date and logic-key form fields are absent.

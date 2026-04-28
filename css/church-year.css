@@ -1,0 +1,209 @@
+.church-year-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    margin: 0 0 16px;
+}
+
+.church-year-section-button {
+    padding: 8px 12px;
+    border: 1px solid #335a9f;
+    background-color: #ffffff;
+    color: #335a9f;
+    font: 700 14px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+}
+
+.church-year-section-button.is-active {
+    background-color: #3A64AF;
+    color: #ffffff;
+}
+
+.church-year-midweek-year {
+    width: auto;
+    min-width: 116px;
+}
+
+.church-year-list {
+    column-count: 3;
+    column-gap: 10px;
+}
+
+.church-year-list .church-year-row {
+    display: inline-block;
+    width: 100%;
+    margin: 0 0 10px;
+    break-inside: avoid;
+}
+
+.church-year-list .church-year-row + .church-year-row {
+    margin-top: 0;
+}
+
+.church-year-row .update-service-forms {
+    padding: 0 12px 12px;
+}
+
+.church-year-row .update-service-edit-card {
+    width: auto;
+    margin: 12px 0 0;
+    padding: 12px;
+}
+
+.church-year-row-success {
+    margin: 12px 0 0;
+}
+
+.church-year-edit-grid,
+.church-year-reading-set {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px 12px;
+}
+
+.church-year-field {
+    min-width: 0;
+}
+
+.church-year-midweek-toggle {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 8px;
+    border: 1px solid #1d1d1d;
+    box-sizing: border-box;
+    font: 15px Georgia, "Times New Roman", serif;
+    background-color: #ffffff;
+    color: #222222;
+}
+
+.church-year-readings {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #d3dceb;
+}
+
+.church-year-readings h4 {
+    margin: 0 0 12px;
+    font: 700 14px Arial, Helvetica, sans-serif;
+    text-align: center;
+}
+
+.church-year-reading-set + .church-year-reading-set {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #ece4d2;
+}
+
+.church-year-reading-set-title {
+    grid-column: 1 / -1;
+    text-align: center;
+    font: 700 13px Arial, Helvetica, sans-serif;
+    color: #444444;
+}
+
+.church-year-add-reading-button {
+    display: block;
+    margin: 14px auto 0;
+    padding: 8px 12px;
+    border: 1px solid #335a9f;
+    background-color: #ffffff;
+    color: #335a9f;
+    font: 700 14px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+}
+
+.church-year-new-reading-set {
+    margin-top: 12px;
+}
+
+.church-year-row-missing {
+    border-color: #b25b5b;
+    background-color: #f8dfdf;
+}
+
+.church-year-row-missing .update-service-summary {
+    color: #761f1f;
+}
+
+.church-year-row-missing .update-service-summary-text {
+    font-weight: 700;
+}
+
+.church-year-missing-panel {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #b25b5b;
+    background-color: #fff5f5;
+    color: #4d1111;
+    font: 14px Arial, Helvetica, sans-serif;
+}
+
+.church-year-missing-form {
+    border-color: #b25b5b;
+}
+
+.church-year-row-unmatched {
+    border-color: #c98219;
+    background-color: #fff1dc;
+}
+
+.church-year-row-unmatched .update-service-summary {
+    color: #704000;
+}
+
+.church-year-row-unmatched .update-service-summary-text {
+    font-weight: 700;
+}
+
+.church-year-unmatched-panel {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #c98219;
+    background-color: #fff8ec;
+    color: #4f2d00;
+    font: 14px Arial, Helvetica, sans-serif;
+}
+
+.church-year-row-light-dark {
+    background-color: #f5f5f5;
+    border-color: #cfcfcf;
+}
+
+.church-year-row-light-gold {
+    background-color: #fff8df;
+    border-color: #ddc56a;
+}
+
+.church-year-row-light-green {
+    background-color: #edf8ea;
+    border-color: #9ccb91;
+}
+
+.church-year-row-light-violet {
+    background-color: #f4edf9;
+    border-color: #b99bd0;
+}
+
+.church-year-row-light-blue {
+    background-color: #edf4ff;
+    border-color: #9bbce4;
+}
+
+.church-year-row-light-rose {
+    background-color: #fff0f5;
+    border-color: #e2a9bc;
+}
+
+.church-year-row-light-scarlet,
+.church-year-row-light-red {
+    background-color: #fff0f0;
+    border-color: #e19a9a;
+}
+
+.church-year-row-light-black {
+    background-color: #eeeeee;
+    border-color: #777777;
+}

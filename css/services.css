@@ -214,6 +214,11 @@
     display: block;
 }
 
+.service-card-hymn-slot-anchor-open-up .service-card-suggestion-list {
+    top: auto;
+    bottom: calc(100% + 4px);
+}
+
 .service-card-suggestion-item {
     display: block;
     width: 100%;

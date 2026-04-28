@@ -1,0 +1,22 @@
+Church Year editor framework work completed before this log:
+
+- Replaced the placeholder church-year.php page with a sectioned editor for Festival Half, Church Half, Festivals, and Midweeks.
+- Added church-year database helper files:
+  - includes/db/church-year-db-read.php
+  - includes/db/church-year-db-write.php
+- Kept church-year-specific styling in css/church-year.css and loaded it from church-year.php.
+- Reused update-service row/detail styling so church-year rows expand in the same pattern as service editing rows.
+- Added editing for liturgical_calendar fields and associated active reading_sets.
+- Added update buttons for each editable church-year row.
+- Made Midweeks rely on the is_midweek tag.
+- Built the Festivals tab from both active liturgical_calendar rows and fixed festival definitions in includes/liturgical_keys.php.
+- Added red unset rows for fixed festivals defined in PHP helpers but missing from the DB.
+- Changed unset festival rows so they stay collapsed by default.
+- Added forms inside unset festival rows so clicking one allows creating the missing liturgical_calendar record.
+
+Verification performed during the work:
+
+- php -l church-year.php
+- php -l includes/db/church-year-db-read.php
+- php -l includes/db/church-year-db-write.php
+- PHP render checks for church-year.php, Festivals, Midweeks, missing-row markers, and missing-row create forms.

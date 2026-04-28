@@ -1,0 +1,48 @@
+Church Year editor work completed since the previous log:
+
+- Simplified collapsed church-year rows so they show only the observance name.
+- Added fixed-festival helper comparison so missing DB records appear as red unset rows.
+- Added add forms inside unset festival rows so missing helper-defined festivals can be inserted into liturgical_calendar.
+- Kept unset rows collapsed by default.
+- Added orange mismatch rows for active DB entries whose logic key is malformed relative to the helper key.
+- Narrowed mismatch detection so only true discrepancies are flagged instead of duplicating properly working rows.
+- Sorted mismatch rows in their expected helper positions instead of sending them to the bottom.
+- Split Christmas observances out of Festivals and into Festival Half.
+- Changed festival ordering so St. Andrew begins the Festivals list.
+- Added month/day labels to festival row headers, such as St. Andrew (11/30).
+- Changed the church-year list to three newspaper-style columns, flowing down columns rather than across rows.
+- Kept expanded card forms the same width as their collapsed row.
+- Limited the UI to one open church-year row at a time.
+- Added padding/inset spacing to expanded card forms.
+- Moved the update success alert into the updated card instead of showing it at the top of the page.
+- Reworked expanded cards into a pared-down single-column layout:
+  - Name
+  - Latin Name placeholder
+  - Season dropdown
+  - Color dropdown
+  - Year YYYY placeholder
+  - Midweek toggle
+  - Centered Readings section
+  - Psalm, Old Testament, Epistle, Gospel
+  - Set Name dropdown when applicable
+  - Year Pattern dropdown when applicable
+- Changed Set Name to a Primary/Alternate dropdown.
+- Changed Year Pattern to an Odd/Even dropdown.
+- Added a reading-set toggle button that changes between:
+  - + Click to add another reading set
+  - - Click to hide new reading set
+- Displayed existing two-reading-set rows with Set One and Set Two headings.
+- Included untagged midweek-named rows in Festival Half using lighter liturgical-color shading.
+- Sorted untagged midweeks after the Sunday they are named for, such as Advent 3 Midweek after Advent 3.
+- Fixed Christmas 2 ordering by treating the legacy christmas_2 logic key as the sunday_after_new_years helper position.
+- Prevented midweek rows from disappearing after toggling Midweek by inferring missing years from names like Advent 1 Midweek 2026.
+- Added All to the Midweeks year dropdown.
+- Made Midweeks All show every active midweek row.
+- Added support for highlighting Midweeks rows orange when their DB year is unset or zero.
+
+Verification:
+
+- php -l church-year.php
+- php -l includes/db/church-year-db-read.php
+- php -l includes/db/church-year-db-write.php
+- Render checks for simplified rows, festival ordering, festival month/day labels, Christmas placement, mismatch placement, untagged midweek visibility, Midweeks year handling, and the Midweeks All option.
