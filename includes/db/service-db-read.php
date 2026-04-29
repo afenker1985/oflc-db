@@ -25,7 +25,9 @@ function oflc_service_db_get_suggested_service_date(PDO $pdo): string
 
         $formattedDate = $date->format('Y-m-d');
         $scheduledSundays[$formattedDate] = true;
-        $firstSunday ??= $date;
+        if (!$firstSunday instanceof DateTimeImmutable) {
+            $firstSunday = $date;
+        }
         $latestSunday = $date;
     }
 
