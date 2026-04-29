@@ -13,6 +13,51 @@ function oflc_service_strip_suggestion_marker(string $observanceName): string
     return trim((string) (preg_replace('/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/', '', $observanceName) ?? $observanceName));
 }
 
+function oflc_service_is_midweek_observance_name(string $observanceName): bool
+{
+    $normalizedName = strtolower(trim($observanceName));
+
+    return $normalizedName !== ''
+        && (strpos($normalizedName, 'midweek') !== false || strpos($normalizedName, 'midwk') !== false);
+}
+
+function oflc_service_get_calendar_year_from_service_date(?DateTimeImmutable $serviceDate): ?int
+{
+    if (!$serviceDate instanceof DateTimeImmutable) {
+        return null;
+    }
+
+    return (int) $serviceDate->format('Y');
+}
+
+function oflc_service_store_midweek_observance_year(
+    PDO $pdo,
+    int $observanceId,
+    string $observanceName,
+    ?DateTimeImmutable $serviceDate
+): void {
+    if ($observanceId <= 0 || !oflc_service_is_midweek_observance_name($observanceName)) {
+        return;
+    }
+
+    $calendarYear = oflc_service_get_calendar_year_from_service_date($serviceDate);
+    if ($calendarYear === null) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE liturgical_calendar
+         SET is_midweek = 1,
+             year = :year
+         WHERE id = :id
+           AND is_active = 1'
+    );
+    $stmt->execute([
+        ':id' => $observanceId,
+        ':year' => $calendarYear,
+    ]);
+}
+
 function oflc_service_fetch_observance_detail_from_row(PDO $pdo, array $observance): array
 {
     $observanceId = (int) ($observance['id'] ?? 0);
@@ -153,8 +198,12 @@ function oflc_service_fetch_observance_name_suggestions(PDO $pdo, string $observ
     }));
 }
 
-function oflc_service_create_observance(PDO $pdo, string $observanceName, ?string $liturgicalColor = null): int
-{
+function oflc_service_create_observance(
+    PDO $pdo,
+    string $observanceName,
+    ?string $liturgicalColor = null,
+    ?DateTimeImmutable $serviceDate = null
+): int {
     $observanceName = oflc_service_strip_suggestion_marker($observanceName);
     if ($observanceName === '') {
         throw new InvalidArgumentException('Observance name is required.');
@@ -164,6 +213,9 @@ function oflc_service_create_observance(PDO $pdo, string $observanceName, ?strin
     if ($liturgicalColor === '') {
         $liturgicalColor = null;
     }
+
+    $isMidweek = oflc_service_is_midweek_observance_name($observanceName) ? 1 : 0;
+    $calendarYear = $isMidweek === 1 ? oflc_service_get_calendar_year_from_service_date($serviceDate) : null;
 
     $stmt = $pdo->prepare(
         'INSERT INTO liturgical_calendar (
@@ -184,8 +236,8 @@ function oflc_service_create_observance(PDO $pdo, string $observanceName, ?strin
             :liturgical_color,
             NULL,
             NULL,
-            0,
-            NULL,
+            :is_midweek,
+            :year,
             NULL,
             1
          )'
@@ -193,6 +245,8 @@ function oflc_service_create_observance(PDO $pdo, string $observanceName, ?strin
     $stmt->execute([
         ':name' => $observanceName,
         ':liturgical_color' => $liturgicalColor,
+        ':is_midweek' => $isMidweek,
+        ':year' => $calendarYear,
     ]);
 
     return (int) $pdo->lastInsertId();

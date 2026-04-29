@@ -1398,13 +1398,25 @@ if ($is_add_submit && $date_error === null) {
             $pdo->beginTransaction();
 
             if ($persisted_observance_detail === null && $create_observance_name !== '') {
-                $created_observance_id = oflc_service_create_observance($pdo, $create_observance_name, $selected_new_observance_color);
+                $created_observance_id = oflc_service_create_observance(
+                    $pdo,
+                    $create_observance_name,
+                    $selected_new_observance_color,
+                    $selected_service_date_obj instanceof DateTimeImmutable ? $selected_service_date_obj : null
+                );
                 $persisted_observance_detail = oflc_service_fetch_observance_detail_by_id($pdo, $created_observance_id);
             }
 
             if ($persisted_observance_detail === null) {
                 throw new RuntimeException('Unable to resolve observance.');
             }
+
+            oflc_service_store_midweek_observance_year(
+                $pdo,
+                (int) ($persisted_observance_detail['observance']['id'] ?? 0),
+                trim((string) ($persisted_observance_detail['observance']['name'] ?? $create_observance_name)),
+                $selected_service_date_obj instanceof DateTimeImmutable ? $selected_service_date_obj : null
+            );
 
             $inserted_reading_set_ids = [];
             if (count($persisted_observance_detail['reading_sets'] ?? []) === 0) {

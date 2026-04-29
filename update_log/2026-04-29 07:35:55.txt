@@ -1,0 +1,14 @@
+Church Year midweeks ordering update:
+
+- Adjusted the Midweeks list sorting in includes/db/church-year-db-read.php.
+- Midweeks now sort within a calendar year with Lent first and Advent second.
+- Lent midweeks sort by their week number.
+- Advent midweeks sort by their week number.
+- Rows with a missing DB year still fall back to the year found in the name when sorting.
+
+Verification:
+
+- php -l includes/db/church-year-db-read.php
+- DB-backed order check:
+  - 2025: Advent 1 Midweek, Advent 2 Midweek, Advent 3 Midweek
+  - 2026: Lent 1 Midweek, Lent 2 Midweek, Lent 3 Midweek, Lent 4 Midweek, Advent 1 Midweek

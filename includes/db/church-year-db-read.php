@@ -140,6 +140,28 @@ function oflc_church_year_db_midweek_year_from_name(string $name): ?int
     return null;
 }
 
+function oflc_church_year_db_midweek_sort_tuple(array $entry): array
+{
+    $name = strtolower(trim((string) ($entry['name'] ?? '')));
+    $year = (int) ($entry['year'] ?? 0);
+    if ($year <= 0) {
+        $year = oflc_church_year_db_midweek_year_from_name((string) ($entry['name'] ?? '')) ?? 0;
+    }
+
+    $seasonOrder = 99;
+    $weekNumber = 99;
+
+    if (preg_match('/\blent\s+([1-5])\b/', $name, $matches)) {
+        $seasonOrder = 1;
+        $weekNumber = (int) $matches[1];
+    } elseif (preg_match('/\badvent\s+([1-4])\b/', $name, $matches)) {
+        $seasonOrder = 2;
+        $weekNumber = (int) $matches[1];
+    }
+
+    return [$year, $seasonOrder, $weekNumber, $name, (int) ($entry['id'] ?? 0)];
+}
+
 function oflc_church_year_db_get_fixed_festival_definitions(bool $includeChristmas = true): array
 {
     $definitions = [];
@@ -427,7 +449,7 @@ function oflc_church_year_db_fetch_entries(PDO $pdo, string $section, ?int $midw
 
     usort($entries, static function (array $left, array $right) use ($sortMap, $section): int {
         if ($section === 'midweeks') {
-            return [$left['year'] ?? 0, $left['name'] ?? '', $left['id'] ?? 0] <=> [$right['year'] ?? 0, $right['name'] ?? '', $right['id'] ?? 0];
+            return oflc_church_year_db_midweek_sort_tuple($left) <=> oflc_church_year_db_midweek_sort_tuple($right);
         }
 
         $leftSortKey = !empty($left['is_unmatched']) && trim((string) ($left['expected_logic_key'] ?? '')) !== ''

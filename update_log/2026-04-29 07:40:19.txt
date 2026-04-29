@@ -1,0 +1,15 @@
+Midweek service calendar-year storage update:
+
+- Added shared service-observance helpers for detecting Midweek/MidWk observance names.
+- New midweek observances created from add-service now store is_midweek = 1.
+- New midweek observances created from add-service now store year from the service date calendar year.
+- update-service now applies the same midweek year update from the submitted service date.
+- Existing selected midweek observances are updated to the service date calendar year during add-service and update-service saves.
+
+Verification:
+
+- php -l includes/service_observances.php
+- php -l add-service.php
+- php -l update-service.php
+- GET render check for add-service.php
+- GET render check for update-service.php

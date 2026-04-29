@@ -2003,13 +2003,25 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
 
             $persistedObservanceDetail = $observanceDetail;
             if ($persistedObservanceDetail === null && $createObservanceName !== '') {
-                $createdObservanceId = oflc_service_create_observance($pdo, $createObservanceName, $submittedState['new_observance_color']);
+                $createdObservanceId = oflc_service_create_observance(
+                    $pdo,
+                    $createObservanceName,
+                    $submittedState['new_observance_color'],
+                    $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
+                );
                 $persistedObservanceDetail = oflc_service_fetch_observance_detail_by_id($pdo, $createdObservanceId);
             }
 
             if ($persistedObservanceDetail === null) {
                 throw new RuntimeException('Unable to resolve observance.');
             }
+
+            oflc_service_store_midweek_observance_year(
+                $pdo,
+                (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
+                trim((string) ($persistedObservanceDetail['observance']['name'] ?? $createObservanceName)),
+                $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
+            );
 
             $insertedReadingSetIds = [];
             if (count($persistedObservanceDetail['reading_sets'] ?? []) === 0) {
