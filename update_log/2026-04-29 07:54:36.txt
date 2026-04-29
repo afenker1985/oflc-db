@@ -1,0 +1,13 @@
+Church Year fixed-column expansion update:
+
+- Changed church-year.php to split the church-year entries into three explicit column containers.
+- Each column receives a contiguous chunk of the sorted church-year list, preserving down-column reading order.
+- Replaced CSS multi-column layout with a three-column CSS grid in css/church-year.css.
+- Expanded week cards now remain in their original column and location.
+- Opening a card only pushes down later cards in the same column.
+- Cards in the previous and following columns no longer rebalance or shift when one card expands.
+
+Verification:
+
+- php -l church-year.php
+- Render check confirmed the page outputs three church-year-column containers.

@@ -417,6 +417,14 @@ $entries = oflc_church_year_db_fetch_entries($pdo, $activeSection, $activeSectio
 $readingSetsByEntry = oflc_church_year_db_fetch_reading_sets_for_entries($pdo, array_map(static function (array $entry): int {
     return (int) ($entry['id'] ?? 0);
 }, $entries));
+$entryColumns = [];
+$entryColumnCount = 3;
+$entryColumnSize = $entries === [] ? 0 : (int) ceil(count($entries) / $entryColumnCount);
+for ($columnIndex = 0; $columnIndex < $entryColumnCount; $columnIndex++) {
+    $entryColumns[] = $entryColumnSize > 0
+        ? array_slice($entries, $columnIndex * $entryColumnSize, $entryColumnSize)
+        : [];
+}
 $liturgicalColorOptions = oflc_get_liturgical_color_options();
 $seasonOptions = oflc_church_year_db_fetch_unique_seasons($pdo);
 $fixedMonthDayByLogicKey = oflc_church_year_db_get_fixed_logic_key_month_day_map();
@@ -457,70 +465,74 @@ include 'includes/header.php';
             <p class="schedule-secondary-text">No rows found for <?php echo htmlspecialchars(strtolower(oflc_church_year_section_label($activeSection)), ENT_QUOTES, 'UTF-8'); ?>.</p>
         <?php endif; ?>
 
-        <?php foreach ($entries as $entry): ?>
-            <?php
-            $entryId = (int) ($entry['id'] ?? 0);
-            $isMissingEntry = !empty($entry['is_missing']);
-            $isUnmatchedEntry = !empty($entry['is_unmatched']);
-            $isUntaggedMidweek = !empty($entry['is_untagged_midweek']);
-            $isUnsetMidweekYear = $activeSection === 'midweeks' && (int) ($entry['year'] ?? 0) <= 0;
-            $colorClass = $isMissingEntry
-                ? 'church-year-row-missing'
-                : ($isUnsetMidweekYear
-                    ? 'church-year-row-unmatched'
-                    : ($isUntaggedMidweek
-                        ? oflc_church_year_light_color_class($entry['liturgical_color'] ?? '')
-                        : ($isUnmatchedEntry ? 'church-year-row-unmatched' : oflc_church_year_color_class($entry['liturgical_color'] ?? ''))));
-            ?>
-            <details class="update-service-row church-year-row <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $updatedEntryId > 0 && $updatedEntryId === $entryId ? ' open' : ''; ?>>
-                <summary class="update-service-summary">
-                    <span class="update-service-summary-text">
-                        <?php echo htmlspecialchars(oflc_church_year_format_row_name($entry, $activeSection, $fixedMonthDayByLogicKey), ENT_QUOTES, 'UTF-8'); ?>
-                    </span>
-                </summary>
-                <div class="update-service-forms">
-                    <?php if ($updatedEntryId > 0 && $updatedEntryId === $entryId): ?>
-                        <p class="planning-success church-year-row-success">Church year row updated.</p>
-                    <?php endif; ?>
-                    <?php if ($isMissingEntry): ?>
-                        <div class="church-year-missing-panel">
-                            No active liturgical calendar row is set for
-                            <strong><?php echo htmlspecialchars((string) ($entry['logic_key'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></strong>.
+        <?php foreach ($entryColumns as $columnEntries): ?>
+            <div class="church-year-column">
+                <?php foreach ($columnEntries as $entry): ?>
+                    <?php
+                    $entryId = (int) ($entry['id'] ?? 0);
+                    $isMissingEntry = !empty($entry['is_missing']);
+                    $isUnmatchedEntry = !empty($entry['is_unmatched']);
+                    $isUntaggedMidweek = !empty($entry['is_untagged_midweek']);
+                    $isUnsetMidweekYear = $activeSection === 'midweeks' && (int) ($entry['year'] ?? 0) <= 0;
+                    $colorClass = $isMissingEntry
+                        ? 'church-year-row-missing'
+                        : ($isUnsetMidweekYear
+                            ? 'church-year-row-unmatched'
+                            : ($isUntaggedMidweek
+                                ? oflc_church_year_light_color_class($entry['liturgical_color'] ?? '')
+                                : ($isUnmatchedEntry ? 'church-year-row-unmatched' : oflc_church_year_color_class($entry['liturgical_color'] ?? ''))));
+                    ?>
+                    <details class="update-service-row church-year-row <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $updatedEntryId > 0 && $updatedEntryId === $entryId ? ' open' : ''; ?>>
+                        <summary class="update-service-summary">
+                            <span class="update-service-summary-text">
+                                <?php echo htmlspecialchars(oflc_church_year_format_row_name($entry, $activeSection, $fixedMonthDayByLogicKey), ENT_QUOTES, 'UTF-8'); ?>
+                            </span>
+                        </summary>
+                        <div class="update-service-forms">
+                            <?php if ($updatedEntryId > 0 && $updatedEntryId === $entryId): ?>
+                                <p class="planning-success church-year-row-success">Church year row updated.</p>
+                            <?php endif; ?>
+                            <?php if ($isMissingEntry): ?>
+                                <div class="church-year-missing-panel">
+                                    No active liturgical calendar row is set for
+                                    <strong><?php echo htmlspecialchars((string) ($entry['logic_key'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></strong>.
+                                </div>
+                                <form class="service-card update-service-edit-card church-year-missing-form" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <input type="hidden" name="create_church_year" value="1">
+                                    <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <input type="hidden" name="return_midweek_year" value="<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+
+                                    <?php echo oflc_church_year_render_entry_fields($entry, $seasonOptions, $liturgicalColorOptions, true); ?>
+                                    <?php echo oflc_church_year_render_readings_panel([], true); ?>
+
+                                    <div class="update-service-panel-actions">
+                                        <button type="submit" class="add-hymn-button">Add</button>
+                                    </div>
+                                </form>
+                            <?php else: ?>
+                            <?php if ($isUnmatchedEntry): ?>
+                                <div class="church-year-unmatched-panel">
+                                    This active DB row does not match this section's expected helper keys. Update the name to regenerate its logic key.
+                                </div>
+                            <?php endif; ?>
+                            <form class="service-card update-service-edit-card <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="update_church_year" value="1">
+                                <input type="hidden" name="entry_id" value="<?php echo $entryId; ?>">
+                                <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="return_midweek_year" value="<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+
+                                <?php echo oflc_church_year_render_entry_fields($entry, $seasonOptions, $liturgicalColorOptions); ?>
+                                <?php echo oflc_church_year_render_readings_panel($readingSetsByEntry[$entryId] ?? []); ?>
+
+                                <div class="update-service-panel-actions">
+                                    <button type="submit" class="add-hymn-button">Update</button>
+                                </div>
+                            </form>
+                            <?php endif; ?>
                         </div>
-                        <form class="service-card update-service-edit-card church-year-missing-form" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="create_church_year" value="1">
-                            <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="return_midweek_year" value="<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
-
-                            <?php echo oflc_church_year_render_entry_fields($entry, $seasonOptions, $liturgicalColorOptions, true); ?>
-                            <?php echo oflc_church_year_render_readings_panel([], true); ?>
-
-                            <div class="update-service-panel-actions">
-                                <button type="submit" class="add-hymn-button">Add</button>
-                            </div>
-                        </form>
-                    <?php else: ?>
-                    <?php if ($isUnmatchedEntry): ?>
-                        <div class="church-year-unmatched-panel">
-                            This active DB row does not match this section's expected helper keys. Update the name to regenerate its logic key.
-                        </div>
-                    <?php endif; ?>
-                    <form class="service-card update-service-edit-card <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
-                        <input type="hidden" name="update_church_year" value="1">
-                        <input type="hidden" name="entry_id" value="<?php echo $entryId; ?>">
-                        <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
-                        <input type="hidden" name="return_midweek_year" value="<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
-
-                        <?php echo oflc_church_year_render_entry_fields($entry, $seasonOptions, $liturgicalColorOptions); ?>
-                        <?php echo oflc_church_year_render_readings_panel($readingSetsByEntry[$entryId] ?? []); ?>
-
-                        <div class="update-service-panel-actions">
-                            <button type="submit" class="add-hymn-button">Update</button>
-                        </div>
-                    </form>
-                    <?php endif; ?>
-                </div>
-            </details>
+                    </details>
+                <?php endforeach; ?>
+            </div>
         <?php endforeach; ?>
     </div>
 </div>

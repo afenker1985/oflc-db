@@ -27,19 +27,18 @@
 }
 
 .church-year-list {
-    column-count: 3;
-    column-gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.church-year-column {
+    min-width: 0;
 }
 
 .church-year-list .church-year-row {
-    display: inline-block;
     width: 100%;
     margin: 0 0 10px;
-    break-inside: avoid;
-}
-
-.church-year-list .church-year-row + .church-year-row {
-    margin-top: 0;
 }
 
 .church-year-row .update-service-forms {
