@@ -1,0 +1,14 @@
+Church Year clean URL update:
+
+- Changed the church-year toolbar from GET to POST.
+- Added a church_year_filter POST action that stores the active section and Midweeks year in the session.
+- Redirected toolbar POSTs back to plain church-year.php with a 303 response.
+- Changed church-year add/update card form actions to submit to plain church-year.php.
+- Removed section and midweek_year query strings from rendered form actions.
+- Preserved active section and Midweeks year after add/update submits using hidden return fields and session state.
+
+Verification:
+
+- php -l church-year.php
+- Render check confirmed no action="church-year.php?..." form actions remain.
+- Render check confirmed clean POST actions to church-year.php are present.

@@ -746,12 +746,6 @@ if (!$oflcScheduleEmbedded) {
                                 <?php $epistle = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['epistle'] ?? null) : ''; ?>
                                 <?php $gospel = $selectedReadingSet !== null ? oflc_clean_reading_text($selectedReadingSet['gospel'] ?? null) : ''; ?>
                                 <div class="schedule-reading-list">
-                                    <?php foreach ($passionReadingLabels as $passionReadingLabel): ?>
-                                        <div><?php echo htmlspecialchars($passionReadingLabel, ENT_QUOTES, 'UTF-8'); ?></div>
-                                    <?php endforeach; ?>
-                                    <?php if ($smallCatechismAbbreviations !== []): ?>
-                                        <div><?php echo htmlspecialchars('SC: ' . implode(', ', $smallCatechismAbbreviations), ENT_QUOTES, 'UTF-8'); ?></div>
-                                    <?php endif; ?>
                                     <?php if ($psalm !== ''): ?>
                                         <div><?php echo htmlspecialchars($psalm, ENT_QUOTES, 'UTF-8'); ?></div>
                                     <?php endif; ?>
@@ -763,6 +757,12 @@ if (!$oflcScheduleEmbedded) {
                                     <?php endif; ?>
                                     <?php if ($gospel !== ''): ?>
                                         <div><?php echo htmlspecialchars($gospel, ENT_QUOTES, 'UTF-8'); ?></div>
+                                    <?php endif; ?>
+                                    <?php foreach ($passionReadingLabels as $passionReadingLabel): ?>
+                                        <div><?php echo htmlspecialchars($passionReadingLabel, ENT_QUOTES, 'UTF-8'); ?></div>
+                                    <?php endforeach; ?>
+                                    <?php if ($smallCatechismAbbreviations !== []): ?>
+                                        <div><?php echo htmlspecialchars('SC: ' . implode(', ', $smallCatechismAbbreviations), ENT_QUOTES, 'UTF-8'); ?></div>
                                     <?php endif; ?>
                                 </div>
                             <?php endif; ?>

@@ -317,11 +317,11 @@ function oflc_church_year_format_row_name(array $entry, string $section, array $
     return $monthDay !== '' ? $name . ' (' . $monthDay . ')' : $name;
 }
 
-$activeSection = oflc_church_year_valid_section(oflc_church_year_request_value($_GET, 'section', 'festival_half'));
+$activeSection = oflc_church_year_valid_section((string) ($_SESSION['church_year_section'] ?? oflc_church_year_request_value($_GET, 'section', 'festival_half')));
 $midweekYears = oflc_church_year_db_fetch_active_midweek_years($pdo);
 $selectedMidweekYear = null;
 if ($midweekYears !== []) {
-    $requestedYear = oflc_church_year_request_value($_GET, 'midweek_year', 'all');
+    $requestedYear = (string) ($_SESSION['church_year_midweek_year'] ?? oflc_church_year_request_value($_GET, 'midweek_year', 'all'));
     if ($requestedYear === 'all') {
         $selectedMidweekYear = null;
     } else {
@@ -333,11 +333,24 @@ if ($midweekYears !== []) {
 }
 $selectedMidweekYearValue = $selectedMidweekYear === null ? 'all' : (string) $selectedMidweekYear;
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['church_year_filter'])) {
+    $_SESSION['church_year_section'] = oflc_church_year_valid_section(oflc_church_year_request_value($_POST, 'section', $activeSection));
+    $postedMidweekYear = oflc_church_year_request_value($_POST, 'midweek_year', 'all');
+    $_SESSION['church_year_midweek_year'] = $postedMidweekYear === 'all' || ctype_digit($postedMidweekYear)
+        ? $postedMidweekYear
+        : 'all';
+
+    header('Location: church-year.php', true, 303);
+    exit;
+}
+
 $updatedEntryId = 0;
 $formErrors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_church_year'])) {
     $activeSection = oflc_church_year_valid_section(oflc_church_year_request_value($_POST, 'return_section', $activeSection));
+    $_SESSION['church_year_section'] = $activeSection;
     $postedYear = oflc_church_year_request_value($_POST, 'return_midweek_year', '');
+    $_SESSION['church_year_midweek_year'] = $postedYear === '' ? 'all' : $postedYear;
     if ($postedYear === 'all') {
         $selectedMidweekYear = null;
     } elseif ($postedYear !== '' && ctype_digit($postedYear)) {
@@ -382,7 +395,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_church_year'])
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_church_year'])) {
     $activeSection = oflc_church_year_valid_section(oflc_church_year_request_value($_POST, 'return_section', $activeSection));
+    $_SESSION['church_year_section'] = $activeSection;
     $postedYear = oflc_church_year_request_value($_POST, 'return_midweek_year', '');
+    $_SESSION['church_year_midweek_year'] = $postedYear === '' ? 'all' : $postedYear;
     if ($postedYear === 'all') {
         $selectedMidweekYear = null;
     } elseif ($postedYear !== '' && ctype_digit($postedYear)) {
@@ -439,7 +454,8 @@ include 'includes/header.php';
         <p class="planning-error"><?php echo htmlspecialchars(implode(' ', $formErrors), ENT_QUOTES, 'UTF-8'); ?></p>
     <?php endif; ?>
 
-    <form class="church-year-toolbar" method="get" action="church-year.php">
+    <form class="church-year-toolbar" method="post" action="church-year.php">
+        <input type="hidden" name="church_year_filter" value="1">
         <input type="hidden" name="section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
         <?php foreach (['festival_half', 'church_half', 'festivals', 'midweeks'] as $section): ?>
             <button type="submit" class="church-year-section-button<?php echo $activeSection === $section ? ' is-active' : ''; ?>" onclick="this.form.elements.section.value='<?php echo htmlspecialchars($section, ENT_QUOTES, 'UTF-8'); ?>';">
@@ -497,7 +513,7 @@ include 'includes/header.php';
                                     No active liturgical calendar row is set for
                                     <strong><?php echo htmlspecialchars((string) ($entry['logic_key'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></strong>.
                                 </div>
-                                <form class="service-card update-service-edit-card church-year-missing-form" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+                                <form class="service-card update-service-edit-card church-year-missing-form" method="post" action="church-year.php">
                                     <input type="hidden" name="create_church_year" value="1">
                                     <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
                                     <input type="hidden" name="return_midweek_year" value="<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
@@ -515,7 +531,7 @@ include 'includes/header.php';
                                     This active DB row does not match this section's expected helper keys. Update the name to regenerate its logic key.
                                 </div>
                             <?php endif; ?>
-                            <form class="service-card update-service-edit-card <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="church-year.php?section=<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>&amp;midweek_year=<?php echo htmlspecialchars($selectedMidweekYearValue, ENT_QUOTES, 'UTF-8'); ?>">
+                            <form class="service-card update-service-edit-card <?php echo htmlspecialchars($colorClass, ENT_QUOTES, 'UTF-8'); ?>" method="post" action="church-year.php">
                                 <input type="hidden" name="update_church_year" value="1">
                                 <input type="hidden" name="entry_id" value="<?php echo $entryId; ?>">
                                 <input type="hidden" name="return_section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">

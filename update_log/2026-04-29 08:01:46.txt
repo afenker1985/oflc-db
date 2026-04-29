@@ -1,0 +1,22 @@
+Church year and schedule update log
+Timestamp: 2026-04-29 08:01:46
+
+Requested change:
+- Change the order of how midweek readings display on schedule.php and print-schedule.php.
+- Desired order: reading set in normal order, Passion reading, Small Catechism.
+
+Work completed:
+- Updated schedule.php so the schedule reading list now renders the selected reading set first:
+  - Psalm
+  - Old Testament
+  - Epistle
+  - Gospel
+- Moved Lent midweek Passion readings after the normal reading set.
+- Moved Advent/Lent midweek Small Catechism abbreviations after Passion readings.
+- Confirmed print-schedule.php inherits this order because it embeds the shared schedule.php renderer.
+
+Verification:
+- php -l schedule.php
+- php -l print-schedule.php
+- Rendered schedule.php through PHP and confirmed schedule output is present.
+- Rendered print-schedule.php through PHP and confirmed print output is present.
