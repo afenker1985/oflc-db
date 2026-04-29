@@ -1,9 +1,44 @@
 <?php
 declare(strict_types=1);
 
-// Returns the next Sunday after the latest active service, falling back to today when no service exists.
+// Returns the first missing Sunday in the active schedule, then the Sunday after the latest active Sunday.
 function oflc_service_db_get_suggested_service_date(PDO $pdo): string
 {
+    $sundayDates = $pdo
+        ->query(
+            'SELECT DISTINCT service_date
+             FROM service_db
+             WHERE is_active = 1
+               AND DAYOFWEEK(service_date) = 1
+             ORDER BY service_date ASC'
+        )
+        ->fetchAll(PDO::FETCH_COLUMN);
+
+    $scheduledSundays = [];
+    $firstSunday = null;
+    $latestSunday = null;
+    foreach ($sundayDates as $sundayDate) {
+        $date = DateTimeImmutable::createFromFormat('Y-m-d', (string) $sundayDate);
+        if (!$date instanceof DateTimeImmutable) {
+            continue;
+        }
+
+        $formattedDate = $date->format('Y-m-d');
+        $scheduledSundays[$formattedDate] = true;
+        $firstSunday ??= $date;
+        $latestSunday = $date;
+    }
+
+    if ($firstSunday instanceof DateTimeImmutable && $latestSunday instanceof DateTimeImmutable) {
+        for ($date = $firstSunday; $date < $latestSunday; $date = $date->modify('+7 days')) {
+            if (!isset($scheduledSundays[$date->format('Y-m-d')])) {
+                return $date->format('Y-m-d');
+            }
+        }
+
+        return $latestSunday->modify('+7 days')->format('Y-m-d');
+    }
+
     $latestServiceDate = $pdo
         ->query('SELECT MAX(service_date) FROM service_db WHERE is_active = 1')
         ->fetchColumn();

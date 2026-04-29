@@ -1,0 +1,18 @@
+Add-service suggested date update log
+Timestamp: 2026-04-29 08:41:35
+
+Requested change:
+- Make add-service account for gaps in scheduled Sundays when choosing the suggested service date.
+- Example: if 7/5 and 7/19 are scheduled but 7/12 is not, suggest 7/12 instead of 7/26.
+
+Work completed:
+- Updated includes/db/service-db-read.php in oflc_service_db_get_suggested_service_date().
+- The helper now loads distinct active Sunday service dates in order.
+- It returns the first missing Sunday within the scheduled Sunday span.
+- If there is no missing Sunday, it returns the Sunday after the latest scheduled Sunday.
+- Existing fallback behavior remains for schedules without any active Sunday service dates.
+
+Verification:
+- php -l includes/db/service-db-read.php
+- Queried the local database through the helper and confirmed the current suggested date is 2026-07-26.
+- Checked the current active Sunday schedule span and confirmed it is continuous from 2025-07-06 through 2026-07-19.
