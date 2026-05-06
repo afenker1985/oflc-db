@@ -4360,9 +4360,10 @@ window.oflcInitializePlannerUI = function (root) {
             if (previewServiceDateInput) {
                 previewServiceDateInput.value = selectedDate;
             }
-            window.setTimeout(function () {
-                oflcSubmitPlannerRefresh(form);
-            }, 0);
+            oflcSubmitPlannerPreview(form, true, {
+                service_date: selectedDate,
+                preview_service_date: selectedDate
+            });
         });
     }
     newObservanceColorSelect.addEventListener('change', function () {
