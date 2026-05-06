@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/db/service-db-read.php';
 require_once __DIR__ . '/includes/db/service-db-write.php';
 require_once __DIR__ . '/includes/service_observances.php';
+require_once __DIR__ . '/includes/service_schedule_last_updated.php';
 
 function oflc_remove_get_liturgical_color_display($color): string
 {
@@ -260,6 +261,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('That service could not be found.');
             }
 
+            $serviceScheduleChanged = false;
+
             if ($serviceAction === 'restore') {
                 if ((int) ($serviceRow['is_active'] ?? 0) === 1) {
                     $successMessage = 'Service is already active.';
@@ -267,6 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     oflc_service_db_restore_service($pdo, $selectedServiceId, $today);
 
                     $successMessage = 'Service restored.';
+                    $serviceScheduleChanged = true;
                 }
             } elseif ($serviceAction === 'deactivate') {
                 if ((int) ($serviceRow['is_active'] ?? 0) === 0) {
@@ -275,14 +279,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     oflc_service_db_deactivate_service($pdo, $selectedServiceId, $today);
 
                     $successMessage = 'Service deactivated.';
+                    $serviceScheduleChanged = true;
                 }
             } else {
                 oflc_service_db_delete_service($pdo, $selectedServiceId);
                 $successMessage = 'Service deleted.';
                 $selectedServiceId = 0;
+                $serviceScheduleChanged = true;
             }
 
             $pdo->commit();
+            if ($serviceScheduleChanged) {
+                oflc_service_schedule_mark_updated();
+            }
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();

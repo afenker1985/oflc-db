@@ -10,6 +10,8 @@ $oflcScheduleShowHeading = false;
 $oflcScheduleShowPrintLink = false;
 $oflcScheduleShowFilters = false;
 $oflcScheduleShowDuplicateTuneWarnings = false;
+require_once __DIR__ . '/includes/service_schedule_last_updated.php';
+$oflcScheduleLastUpdated = oflc_service_schedule_format_last_updated();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -57,6 +59,13 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
         .print-schedule-page:last-child {
             break-after: auto;
             page-break-after: auto;
+        }
+
+        .print-schedule-page-header {
+            font-family: "Times New Roman", Times, serif;
+            line-height: 1.2;
+            margin: 0 0 0.08in;
+            text-align: right;
         }
 
         .schedule-table {
@@ -140,6 +149,12 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
 </head>
 <body>
 <div id="print-schedule-root">
+<div class="print-schedule-page-header">
+    <div class="print-schedule-page-label">Service Schedule, p. 1</div>
+    <?php if ($oflcScheduleLastUpdated !== null): ?>
+        <div class="print-schedule-last-updated">Last Updated: <?php echo htmlspecialchars($oflcScheduleLastUpdated, ENT_QUOTES, 'UTF-8'); ?></div>
+    <?php endif; ?>
+</div>
 <?php include __DIR__ . '/schedule.php'; ?>
 </div>
 <script>
@@ -177,6 +192,21 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
         return table;
     }
 
+    function buildPageHeader(sourceHeader, pageNumber) {
+        if (!sourceHeader) {
+            return null;
+        }
+
+        var header = sourceHeader.cloneNode(true);
+        var pageLabel = header.querySelector('.print-schedule-page-label');
+
+        if (pageLabel) {
+            pageLabel.textContent = 'Service Schedule, p. ' + pageNumber;
+        }
+
+        return header;
+    }
+
     function paginateSchedule() {
         var root = document.getElementById('print-schedule-root');
         var sourceTable = root ? root.querySelector('.schedule-table') : null;
@@ -190,6 +220,7 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
             return;
         }
 
+        var sourceHeader = root.querySelector('.print-schedule-page-header');
         var pageHeight = measureInches(9);
         var measurementHost = document.createElement('div');
         measurementHost.style.position = 'absolute';
@@ -206,6 +237,21 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
         var measurementBody = measurementTable.querySelector('tbody');
         var measurementHeader = measurementTable.querySelector('thead');
         var headerHeight = measurementHeader ? measurementHeader.getBoundingClientRect().height : 0;
+        var firstPageHeaderHeight = 0;
+        var continuedPageHeaderHeight = 0;
+        if (sourceHeader) {
+            var firstPageHeader = buildPageHeader(sourceHeader, 1);
+            var continuedPageHeader = buildPageHeader(sourceHeader, 2);
+            if (firstPageHeader) {
+                measurementHost.insertBefore(firstPageHeader, measurementTable);
+                firstPageHeaderHeight = firstPageHeader.getBoundingClientRect().height;
+            }
+            if (continuedPageHeader) {
+                measurementHost.insertBefore(continuedPageHeader, measurementTable);
+                continuedPageHeaderHeight = continuedPageHeader.getBoundingClientRect().height;
+                continuedPageHeader.remove();
+            }
+        }
 
         var pages = [];
         var currentTable = buildTableSkeleton(sourceTable);
@@ -217,8 +263,10 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
 
             measurementBody.replaceChildren(rowClone.cloneNode(true));
             var rowHeight = measurementBody.firstElementChild.getBoundingClientRect().height;
+            var currentPageHeaderHeight = pages.length === 0 ? firstPageHeaderHeight : continuedPageHeaderHeight;
+            var availableHeight = pageHeight - currentPageHeaderHeight;
 
-            if (currentBody.children.length > 0 && currentHeight + rowHeight > pageHeight) {
+            if (currentBody.children.length > 0 && currentHeight + rowHeight > availableHeight) {
                 pages.push(currentTable);
                 currentTable = buildTableSkeleton(sourceTable);
                 currentBody = currentTable.querySelector('tbody');
@@ -236,9 +284,13 @@ $oflcScheduleShowDuplicateTuneWarnings = false;
         measurementHost.remove();
         root.replaceChildren();
 
-        pages.forEach(function (table) {
+        pages.forEach(function (table, index) {
             var page = document.createElement('div');
             page.className = 'print-schedule-page';
+            var pageHeader = buildPageHeader(sourceHeader, index + 1);
+            if (pageHeader) {
+                page.appendChild(pageHeader);
+            }
             page.appendChild(table);
             root.appendChild(page);
         });

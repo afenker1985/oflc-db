@@ -20,6 +20,7 @@ require_once __DIR__ . '/includes/service_observance_suggestions.php';
 require_once __DIR__ . '/includes/service_planner_form.php';
 require_once __DIR__ . '/includes/liturgical_colors.php';
 require_once __DIR__ . '/includes/hymn_layout.php';
+require_once __DIR__ . '/includes/service_schedule_last_updated.php';
 
 function oflc_update_request_value(array $data, string $key, string $default = ''): string
 {
@@ -1230,8 +1231,6 @@ function oflc_update_group_schedule_services(array $services): array
         $lastGroup = $groups[$lastGroupIndex];
         $lastService = $lastGroup[count($lastGroup) - 1];
 
-        $sameObservance = (int) ($lastService['liturgical_calendar_id'] ?? 0) !== 0
-            && (int) ($lastService['liturgical_calendar_id'] ?? 0) === (int) ($service['liturgical_calendar_id'] ?? 0);
         $lastDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($lastService['service_date'] ?? ''));
         $currentDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
         $weekdayPair = [];
@@ -1246,8 +1245,12 @@ function oflc_update_group_schedule_services(array $services): array
             && $currentDate instanceof DateTimeImmutable
             && abs((int) $currentDate->diff($lastDate)->format('%r%a')) === 3
             && $weekdayPair === ['0', '4'];
+        $thursdayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '4' ? $lastService : $service;
+        $sundayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '0' ? $lastService : $service;
+        $isLinkedPair = $isThursdaySundayPair
+            && (int) ($thursdayService['copied_from_service_id'] ?? 0) === (int) ($sundayService['id'] ?? 0);
 
-        if ($sameObservance && $isThursdaySundayPair) {
+        if ($isLinkedPair) {
             $groups[$lastGroupIndex][] = $service;
             continue;
         }
@@ -1256,6 +1259,66 @@ function oflc_update_group_schedule_services(array $services): array
     }
 
     return $groups;
+}
+
+function oflc_update_build_pair_candidate_lookup(array $services): array
+{
+    $servicesByDate = [];
+    foreach ($services as $service) {
+        $date = trim((string) ($service['service_date'] ?? ''));
+        $serviceId = (int) ($service['id'] ?? 0);
+        if ($date === '' || $serviceId <= 0) {
+            continue;
+        }
+
+        $servicesByDate[$date][] = $service;
+    }
+
+    $lookup = [];
+    foreach ($services as $service) {
+        $serviceId = (int) ($service['id'] ?? 0);
+        $dateObject = oflc_update_get_service_date_object($service);
+        if ($serviceId <= 0 || !$dateObject instanceof DateTimeImmutable) {
+            continue;
+        }
+
+        $weekday = $dateObject->format('w');
+        if ($weekday !== '4' && $weekday !== '0') {
+            continue;
+        }
+
+        $candidateDate = $weekday === '4'
+            ? $dateObject->modify('+3 days')->format('Y-m-d')
+            : $dateObject->modify('-3 days')->format('Y-m-d');
+        $candidateServices = $servicesByDate[$candidateDate] ?? [];
+        if ($candidateServices === []) {
+            continue;
+        }
+
+        $serviceOrder = (int) ($service['service_order'] ?? 1);
+        $candidate = null;
+        foreach ($candidateServices as $candidateService) {
+            if ((int) ($candidateService['service_order'] ?? 1) === $serviceOrder) {
+                $candidate = $candidateService;
+                break;
+            }
+        }
+        if ($candidate === null) {
+            $candidate = $candidateServices[0];
+        }
+
+        $candidateDateObject = oflc_update_get_service_date_object($candidate);
+        if (!$candidateDateObject instanceof DateTimeImmutable || $candidateDateObject->format('w') === $weekday) {
+            continue;
+        }
+
+        $lookup[$serviceId] = [
+            'thursday_service' => $weekday === '4' ? $service : $candidate,
+            'sunday_service' => $weekday === '0' ? $service : $candidate,
+        ];
+    }
+
+    return $lookup;
 }
 
 function oflc_update_get_service_date_object(array $service): ?DateTimeImmutable
@@ -1833,11 +1896,11 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     $hasPairCandidate = $pairThursdayId > 0 && $pairSundayId > 0;
     $originalCopyState = isset($_POST['original_copy_to_previous_thursday']) && (string) $_POST['original_copy_to_previous_thursday'] === '1';
     $currentCopyState = $submittedState['copy_to_previous_thursday'];
-    $isSundayPairEditor = $hasPairCandidate && $serviceId === $pairSundayId;
+    $isPairEditor = $hasPairCandidate && ($serviceId === $pairSundayId || $serviceId === $pairThursdayId);
     $shouldLinkPair = false;
     $shouldUnlinkPair = false;
 
-    if ($isSundayPairEditor) {
+    if ($isPairEditor) {
         if ($originalCopyState && !$currentCopyState) {
             if ($submittedState['link_action'] !== 'unlink') {
                 $errors[] = 'Choose whether to separate Thursday from Sunday.';
@@ -1853,7 +1916,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         }
     }
 
-    if ($isSundayPairEditor) {
+    if ($isPairEditor) {
         $targetServiceIds = $originalCopyState || $shouldLinkPair || $shouldUnlinkPair
             ? [$pairThursdayId, $pairSundayId]
             : [$serviceId];
@@ -1868,6 +1931,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     $targetServiceDates = [];
     if ($errors === [] && $serviceDateObject instanceof DateTimeImmutable && $serviceRowsById !== []) {
         if (count($targetServiceIds) === 2) {
+            $submittedWeekday = $serviceDateObject->format('w');
             foreach ($serviceRowsById as $targetRowId => $serviceRow) {
                 $existingDateObject = oflc_update_get_service_date_object($serviceRow);
                 if (!$existingDateObject instanceof DateTimeImmutable) {
@@ -1875,7 +1939,15 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                     break;
                 }
 
-                if ($existingDateObject->format('w') === '0') {
+                if ($submittedWeekday === '4') {
+                    if ($existingDateObject->format('w') === '4') {
+                        $targetServiceDates[$targetRowId] = $serviceDateObject->format('Y-m-d');
+                    } elseif ($existingDateObject->format('w') === '0') {
+                        $targetServiceDates[$targetRowId] = $serviceDateObject->modify('+3 days')->format('Y-m-d');
+                    } else {
+                        $targetServiceDates[$targetRowId] = $serviceDateObject->format('Y-m-d');
+                    }
+                } elseif ($existingDateObject->format('w') === '0') {
                     $targetServiceDates[$targetRowId] = $serviceDateObject->format('Y-m-d');
                 } elseif ($existingDateObject->format('w') === '4') {
                     $targetServiceDates[$targetRowId] = $serviceDateObject->modify('-3 days')->format('Y-m-d');
@@ -1995,6 +2067,37 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         ];
     }
 
+    if ($shouldLinkPair) {
+        $otherServiceId = $serviceId === $pairThursdayId ? $pairSundayId : $pairThursdayId;
+        $otherHymnRowsByService = oflc_service_db_fetch_update_hymn_rows_by_service($pdo, [$otherServiceId]);
+        $otherHymnRows = $otherHymnRowsByService[$otherServiceId] ?? [];
+        $primaryHymnIds = [];
+        foreach ($hymnEntries as $entry) {
+            $primaryHymnIds[(int) ($entry['hymn_id'] ?? 0)] = true;
+        }
+
+        if ($otherHymnRows !== [] && !isset($hymnSlots['Other Hymn']['id'])) {
+            $errors[] = 'Missing hymn slot configuration for Other Hymn.';
+        }
+
+        if (isset($hymnSlots['Other Hymn']['id'])) {
+            foreach ($otherHymnRows as $otherHymnRow) {
+                $otherHymnId = (int) ($otherHymnRow['hymn_id'] ?? 0);
+                if ($otherHymnId <= 0 || isset($primaryHymnIds[$otherHymnId])) {
+                    continue;
+                }
+
+                $hymnEntries[] = [
+                    'hymn_id' => $otherHymnId,
+                    'slot_id' => (int) $hymnSlots['Other Hymn']['id'],
+                    'sort_order' => count($hymnEntries) + 1,
+                    'stanzas' => oflc_update_normalize_stanza_text($otherHymnRow['stanzas'] ?? ''),
+                ];
+                $primaryHymnIds[$otherHymnId] = true;
+            }
+        }
+    }
+
     if ($errors === []) {
         $today = (new DateTimeImmutable('today'))->format('Y-m-d');
 
@@ -2056,7 +2159,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 $liturgicalCalendarId = (int) ($persistedObservanceDetail['observance']['id'] ?? 0) ?: null;
                 $copiedFromServiceId = null;
                 $targetLeaderId = $leaderId;
-                if (($originalCopyState || $shouldLinkPair) && $targetServiceDateObject instanceof DateTimeImmutable && $targetServiceDateObject->format('w') === '4') {
+                if (($originalCopyState || $shouldLinkPair) && !$shouldUnlinkPair && $targetServiceDateObject instanceof DateTimeImmutable && $targetServiceDateObject->format('w') === '4') {
                     $copiedFromServiceId = $pairSundayId > 0 ? $pairSundayId : null;
                     if ($originalCopyState) {
                         $targetLeaderId = $hasExplicitThursdayLeader
@@ -2091,6 +2194,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
             }
 
             $pdo->commit();
+            oflc_service_schedule_mark_updated();
 
             $redirectQuery = [
                 'search' => $selectedSearchTerm !== '' ? $selectedSearchTerm : null,
@@ -2135,6 +2239,7 @@ $passionReadingIdsByService = oflc_service_db_fetch_passion_reading_ids_by_servi
 
 $hymnRowsByService = oflc_service_db_fetch_update_hymn_rows_by_service($pdo, $serviceIds);
 
+$pairCandidateByServiceId = oflc_update_build_pair_candidate_lookup($services);
 $allScheduleGroups = oflc_update_group_schedule_services($services);
 $scheduleGroups = $allScheduleGroups;
 if ($scheduleFilterError === null) {
@@ -2358,6 +2463,17 @@ include 'includes/header.php';
                         $originalCopyToPreviousThursday = (bool) ($editTarget['is_linked'] ?? false);
                         $thursdayService = $editTarget['thursday_service'] ?? null;
                         $sundayService = $editTarget['sunday_service'] ?? null;
+                        if (!$showPreviousThursdayToggle && is_array($displayService)) {
+                            $pairCandidate = $pairCandidateByServiceId[(int) ($displayService['id'] ?? 0)] ?? null;
+                            if (is_array($pairCandidate)) {
+                                $thursdayService = $pairCandidate['thursday_service'] ?? null;
+                                $sundayService = $pairCandidate['sunday_service'] ?? null;
+                                if (is_array($thursdayService) && is_array($sundayService)) {
+                                    $showPreviousThursdayToggle = true;
+                                    $originalCopyToPreviousThursday = false;
+                                }
+                            }
+                        }
                         $defaultSettingDetail = isset($serviceSettingsById[(string) ($displayService['service_setting_id'] ?? '')])
                             ? $serviceSettingsById[(string) $displayService['service_setting_id']]
                             : null;
@@ -2450,12 +2566,27 @@ include 'includes/header.php';
                         $linkAction = $showPreviousThursdayToggle
                             ? ($hasPostedState ? (string) ($formState['link_action'] ?? '') : '')
                             : '';
-                        $previousThursdayLabel = null;
+                        $copyServiceLabel = null;
+                        $copyServiceToggleText = '';
                         if ($showPreviousThursdayToggle) {
-                            if (is_array($thursdayService)) {
-                                $linkedDateObject = oflc_update_get_service_date_object($thursdayService);
+                            $displayDateObject = is_array($displayService) ? oflc_update_get_service_date_object($displayService) : null;
+                            $linkTargetService = $displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '4'
+                                ? $sundayService
+                                : $thursdayService;
+                            if (is_array($linkTargetService)) {
+                                $linkedDateObject = oflc_update_get_service_date_object($linkTargetService);
                                 if ($linkedDateObject instanceof DateTimeImmutable) {
-                                    $previousThursdayLabel = $linkedDateObject->format('m/d');
+                                    $copyServiceLabel = $linkedDateObject->format('m/d');
+                                    $isThursdayDisplay = $displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '4';
+                                    if ($originalCopyToPreviousThursday) {
+                                        $copyServiceToggleText = $isThursdayDisplay
+                                            ? 'Copy this service to the upcoming Sunday'
+                                            : 'Copy this service to the previous Thursday';
+                                    } else {
+                                        $copyServiceToggleText = $isThursdayDisplay
+                                            ? 'Combine service with upcoming Sunday'
+                                            : 'Combine service with preceding Thursday';
+                                    }
                                 }
                             }
                         }
@@ -2562,7 +2693,7 @@ include 'includes/header.php';
                                 }
 
                                 ob_start();
-                                if ($showPreviousThursdayToggle && $previousThursdayLabel !== null):
+                                if ($showPreviousThursdayToggle && $copyServiceLabel !== null):
                                 ?>
                                     <label class="service-card-checkbox update-service-thursday-toggle">
                                         <input
@@ -2573,7 +2704,7 @@ include 'includes/header.php';
                                             data-original-copy="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>"
                                             <?php echo $copyToPreviousThursday ? 'checked' : ''; ?>
                                         >
-                                        <span>Copy this service to the previous Thursday (<?php echo htmlspecialchars($previousThursdayLabel, ENT_QUOTES, 'UTF-8'); ?>)?</span>
+                                        <span><?php echo htmlspecialchars($copyServiceToggleText, ENT_QUOTES, 'UTF-8'); ?> (<?php echo htmlspecialchars($copyServiceLabel, ENT_QUOTES, 'UTF-8'); ?>)?</span>
                                     </label>
                                     <div class="update-service-separate-alert js-separate-thursday-alert">
                                         <div class="update-service-separate-alert-title js-separate-thursday-alert-title">Would you like to separate Thursday from Sunday?</div>

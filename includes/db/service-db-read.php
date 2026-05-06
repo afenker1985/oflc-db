@@ -627,6 +627,7 @@ function oflc_service_db_fetch_schedule_services(PDO $pdo, string $sortOrder = '
             s.id,
             s.service_date,
             s.service_order,
+            s.copied_from_service_id,
             s.passion_reading_id,
             s.liturgical_calendar_id,
             lc.name AS observance_name,
@@ -843,7 +844,7 @@ function oflc_service_db_fetch_active_service_rows_by_id(PDO $pdo, array $servic
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, service_date, service_order, leader_id
+        'SELECT id, service_date, service_order, leader_id, copied_from_service_id
          FROM service_db
          WHERE id IN (' . implode(', ', array_fill(0, count($serviceIds), '?')) . ')
            AND is_active = 1'

@@ -119,9 +119,31 @@ function oflc_service_db_update_existing_reading_set(PDO $pdo, int $readingSetId
     ]);
 }
 
+// Returns the next service order for a date, preserving existing inactive rows.
+function oflc_service_db_get_next_service_order(PDO $pdo, string $serviceDate): int
+{
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(MAX(service_order), 0) + 1
+         FROM service_db
+         WHERE service_date = ?'
+    );
+    $stmt->execute([$serviceDate]);
+
+    return max(1, (int) $stmt->fetchColumn());
+}
+
 // Inserts one service row and returns its new id.
 function oflc_service_db_insert_service(PDO $pdo, array $serviceData): int
 {
+    $serviceDate = trim((string) ($serviceData['service_date'] ?? ''));
+    $serviceOrder = (int) ($serviceData['service_order'] ?? 0);
+    if ($serviceOrder <= 0 && $serviceDate !== '') {
+        $serviceOrder = oflc_service_db_get_next_service_order($pdo, $serviceDate);
+    }
+    if ($serviceOrder <= 0) {
+        $serviceOrder = 1;
+    }
+
     $stmt = $pdo->prepare(
         'INSERT INTO service_db (
             service_date,
@@ -143,20 +165,21 @@ function oflc_service_db_insert_service(PDO $pdo, array $serviceData): int
             :selected_reading_set_id,
             :service_setting_id,
             :leader_id,
-            1,
+            :service_order,
             :copied_from_service_id,
             :last_updated,
             1
          )'
     );
     $stmt->execute([
-        ':service_date' => $serviceData['service_date'] ?? null,
+        ':service_date' => $serviceDate !== '' ? $serviceDate : null,
         ':liturgical_calendar_id' => $serviceData['liturgical_calendar_id'] ?? null,
         ':passion_reading_id' => $serviceData['passion_reading_id'] ?? null,
         ':small_catechism_id' => $serviceData['small_catechism_id'] ?? null,
         ':selected_reading_set_id' => $serviceData['selected_reading_set_id'] ?? null,
         ':service_setting_id' => $serviceData['service_setting_id'] ?? null,
         ':leader_id' => $serviceData['leader_id'] ?? null,
+        ':service_order' => $serviceOrder,
         ':copied_from_service_id' => $serviceData['copied_from_service_id'] ?? null,
         ':last_updated' => $serviceData['last_updated'] ?? null,
     ]);

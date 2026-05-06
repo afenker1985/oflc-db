@@ -1,0 +1,31 @@
+Service schedule last-updated framework update log
+Timestamp: 2026-05-06 09:02:57
+
+Requested change:
+- Create a simple JSON-backed last-updated framework for the service schedule.
+- Update the marker whenever the service schedule changes through add, update, or remove/restore/delete actions.
+- Show "Last Updated: mm/dd/yyyy" on print-schedule.
+- Add "Service Schedule, p. [page number]" above the last-updated line.
+- Use Times New Roman for the print header, match the schedule font size, and show the header on every printed page.
+
+Work completed:
+- Added includes/service_schedule_last_updated.php to read, write, and format the service schedule last-updated marker.
+- Added service-schedule-last-updated.json with the initial timestamp payload.
+- Updated add-service.php to mark the service schedule as updated after a successful service insert transaction.
+- Updated update-service.php to mark the service schedule as updated after a successful service update transaction.
+- Updated remove-service.php to mark the service schedule as updated after successful deactivate, restore, or delete actions.
+- Updated print-schedule.php to render a Times New Roman print header containing:
+  - Service Schedule, p. N
+  - Last Updated: mm/dd/yyyy
+- Adjusted the client-side print pagination so each generated printed page receives the header and page number.
+- Removed the forced print header font size so it inherits the same size as the rest of the schedule.
+
+Verification:
+- php -l includes/service_schedule_last_updated.php
+- php -l add-service.php
+- php -l update-service.php
+- php -l remove-service.php
+- php -l print-schedule.php
+- Verified the marker formats as 05/06/2026.
+- Render-checked print-schedule.php and confirmed the page label and Last Updated text are present.
+- Render-checked print-schedule.php and confirmed the forced 10pt header size was removed.

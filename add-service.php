@@ -12,6 +12,7 @@ require_once __DIR__ . '/includes/service_observances.php';
 require_once __DIR__ . '/includes/service_observance_suggestions.php';
 require_once __DIR__ . '/includes/liturgical_colors.php';
 require_once __DIR__ . '/includes/hymn_layout.php';
+require_once __DIR__ . '/includes/service_schedule_last_updated.php';
 
 function oflc_request_value(array $request_data, string $key, string $default = ''): string
 {
@@ -1384,11 +1385,6 @@ if ($is_add_submit && $date_error === null) {
             $target_dates['sunday'] = $selected_service_date_obj->format('Y-m-d');
         }
 
-        foreach ($target_dates as $target_date) {
-            if (oflc_service_db_has_active_service_conflict($pdo, $target_date)) {
-                $form_errors[] = 'Another active service already exists for ' . $target_date . '.';
-            }
-        }
     }
 
     if ($form_errors === []) {
@@ -1505,6 +1501,7 @@ if ($is_add_submit && $date_error === null) {
             }
 
             $pdo->commit();
+            oflc_service_schedule_mark_updated();
             unset($_SESSION[$form_state_key]);
             header('Location: add-service.php?added_service=1', true, 303);
             exit;

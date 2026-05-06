@@ -244,8 +244,6 @@ function oflc_group_schedule_services(array $services): array
         $lastGroup = $groups[$lastGroupIndex];
         $lastService = $lastGroup[count($lastGroup) - 1];
 
-        $sameObservance = (int) ($lastService['liturgical_calendar_id'] ?? 0) !== 0
-            && (int) ($lastService['liturgical_calendar_id'] ?? 0) === (int) ($service['liturgical_calendar_id'] ?? 0);
         $lastDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($lastService['service_date'] ?? ''));
         $currentDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
         $weekdayPair = [];
@@ -260,8 +258,12 @@ function oflc_group_schedule_services(array $services): array
             && $currentDate instanceof DateTimeImmutable
             && abs((int) $currentDate->diff($lastDate)->format('%r%a')) === 3
             && $weekdayPair === ['0', '4'];
+        $thursdayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '4' ? $lastService : $service;
+        $sundayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '0' ? $lastService : $service;
+        $isLinkedPair = $isThursdaySundayPair
+            && (int) ($thursdayService['copied_from_service_id'] ?? 0) === (int) ($sundayService['id'] ?? 0);
 
-        if ($sameObservance && $isThursdaySundayPair) {
+        if ($isLinkedPair) {
             $groups[$lastGroupIndex][] = $service;
             continue;
         }

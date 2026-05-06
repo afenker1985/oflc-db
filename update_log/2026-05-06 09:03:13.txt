@@ -1,0 +1,42 @@
+Multiple services and Thursday/Sunday pairing update log
+Timestamp: 2026-05-06 09:03:13
+
+Requested change:
+- Allow multiple services on the same service date.
+- Prevent inactive services from blocking new services on the same date.
+- Make update-service split Thursday/Sunday services when the copy toggle is unchecked.
+- Show separated Thursday and Sunday services separately in update-service, schedule, and print-schedule.
+- Add update-service controls to combine a separate Thursday/Sunday pair from either service.
+- When combining services, treat the edited service as primary and preserve different hymns from the other service as Other hymns.
+
+Work completed:
+- Updated add-service.php to stop rejecting a date just because another active service exists on that date.
+- Added oflc_service_db_get_next_service_order() in includes/db/service-db-write.php.
+- Updated oflc_service_db_insert_service() to assign the next service_order for the service date instead of always inserting service_order 1.
+- Kept the service_db uq_service_date_order unique key useful as a guardrail by avoiding reused date/order pairs, including inactive rows.
+- Updated includes/db/service-db-read.php so schedule and update queries include copied_from_service_id where grouping and update logic need it.
+- Changed schedule.php grouping so Thursday/Sunday services combine only when Thursday is explicitly linked to Sunday through copied_from_service_id.
+- Changed update-service.php grouping with the same explicit-link rule, so separated services no longer remain visually grouped just because they share an observance.
+- Fixed update-service.php so unchecking the copy toggle and confirming separation saves copied_from_service_id as NULL.
+- Added pair-candidate detection in update-service.php so separate Thursday/Sunday services can be combined again from either the Thursday or Sunday form.
+- Added toggle labels for separate pairs:
+  - Combine service with upcoming Sunday.
+  - Combine service with preceding Thursday.
+- Updated update-service.php so the edited service is primary when combining:
+  - Its date drives the Thursday/Sunday date pair.
+  - Its observance, readings, service setting, liturgy, and selected hymns are applied to both services.
+  - Hymns from the other service that are not already in the primary hymn list are appended as Other Hymn rows.
+- Fixed Thursday-primary date handling so editing Thursday keeps Thursday on the submitted date and sets Sunday to three days later.
+
+Verification:
+- php -l includes/db/service-db-write.php
+- php -l includes/db/service-db-read.php
+- php -l add-service.php
+- php -l schedule.php
+- php -l update-service.php
+- Rendered add-service.php and confirmed add ok.
+- Queried the local database and confirmed an existing service date returns the next service_order, e.g. 2026-07-19 next=2.
+- Rendered schedule.php and confirmed schedule render ok.
+- Rendered update-service.php and confirmed update render ok.
+- Rendered print-schedule.php and confirmed print render ok.
+- Rendered update-service.php and confirmed both combine toggle labels are present.
