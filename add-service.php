@@ -1785,6 +1785,7 @@ include 'includes/header.php';
                 <?php endif; ?>
             </section>
         </div>
+    </form>
     <div class="service-card-actions">
         <div class="service-card-actions-fill" id="fill-hymns-controls">
             <div class="service-card-fill-row">
@@ -1803,10 +1804,9 @@ include 'includes/header.php';
         </div>
         <div class="service-card-actions-buttons">
             <button type="button" class="clear-list-button" id="clear_service_button" onclick="oflcClearPlanner(document.getElementById('add-service-form'));">Clear Service</button>
-            <button type="submit" name="add_service" value="1" class="add-hymn-button" id="add_service_button">Add Service</button>
+            <button type="submit" name="add_service" value="1" class="add-hymn-button" id="add_service_button" form="add-service-form">Add Service</button>
         </div>
     </div>
-    </form>
 
     <?php if (false): ?>
     <div class="planning-result">
