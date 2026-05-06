@@ -1785,7 +1785,6 @@ include 'includes/header.php';
                 <?php endif; ?>
             </section>
         </div>
-    </form>
     <div class="service-card-actions">
         <div class="service-card-actions-fill" id="fill-hymns-controls">
             <div class="service-card-fill-row">
@@ -1804,9 +1803,10 @@ include 'includes/header.php';
         </div>
         <div class="service-card-actions-buttons">
             <button type="button" class="clear-list-button" id="clear_service_button" onclick="oflcClearPlanner(document.getElementById('add-service-form'));">Clear Service</button>
-            <button type="submit" name="add_service" value="1" class="add-hymn-button" id="add_service_button" form="add-service-form">Add Service</button>
+            <button type="submit" name="add_service" value="1" class="add-hymn-button" id="add_service_button">Add Service</button>
         </div>
     </div>
+    </form>
 
     <?php if (false): ?>
     <div class="planning-result">
@@ -1903,6 +1903,10 @@ include 'includes/header.php';
 <script src="js/service-observance.js"></script>
 <script src="js/service-observance-dropdown.js"></script>
 <script>
+if (window.location.search && /(?:^|[?&])added_service=1(?:&|$)/.test(window.location.search)) {
+    window.history.replaceState({}, '', 'add-service.php');
+}
+
 function oflcResetReadingSelection(form) {
     var radios = form.querySelectorAll('.service-card-reading-radio');
 
@@ -2555,6 +2559,15 @@ window.oflcInitializePlannerUI = function (root) {
     if (!form || !serviceSettingInput || !serviceSettingIdInput || !serviceSettingSuggestionList || !summary || !hymnPane || !observanceInput || !observanceIdInput || !observanceSuggestionList || !newObservanceColorWrap || !newObservanceColorSelect || !readingsPane) {
         return;
     }
+
+    form.addEventListener('submit', function () {
+        var autoPreview = form.querySelector('#auto-preview-flag');
+        form.setAttribute('method', 'post');
+        form.setAttribute('action', 'add-service.php');
+        if (autoPreview) {
+            autoPreview.value = '';
+        }
+    });
 
     try {
         hymnDefinitionsByService = JSON.parse(form.getAttribute('data-hymn-definitions-by-service') || '{}');
