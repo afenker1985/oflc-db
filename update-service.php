@@ -2194,7 +2194,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
             }
 
             $pdo->commit();
-            oflc_service_schedule_mark_updated();
+            if (function_exists('oflc_service_schedule_mark_updated')) {
+                try {
+                    oflc_service_schedule_mark_updated();
+                } catch (Throwable $exception) {
+                    // The service update is already committed; a marker update cannot make it fail.
+                }
+            }
 
             $redirectQuery = [
                 'search' => $selectedSearchTerm !== '' ? $selectedSearchTerm : null,

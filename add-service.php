@@ -1501,7 +1501,13 @@ if ($is_add_submit && $date_error === null) {
             }
 
             $pdo->commit();
-            oflc_service_schedule_mark_updated();
+            if (function_exists('oflc_service_schedule_mark_updated')) {
+                try {
+                    oflc_service_schedule_mark_updated();
+                } catch (Throwable $exception) {
+                    // The service is already committed; a marker update cannot make the add fail.
+                }
+            }
             unset($_SESSION[$form_state_key]);
             header('Location: add-service.php?added_service=1', true, 303);
             exit;
