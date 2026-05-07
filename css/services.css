@@ -1154,6 +1154,34 @@
     text-decoration: none;
 }
 
+.chapel-schedule-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin: 0 0 12px;
+}
+
+.chapel-school-year-filter {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    margin: 0 0 12px;
+    font: 14px Arial, Helvetica, sans-serif;
+}
+
+.chapel-school-year-filter label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chapel-school-year-filter select {
+    padding: 6px 8px;
+    border: 1px solid #222222;
+    background-color: #ffffff;
+    font: inherit;
+}
+
 .planning-table {
     width: 100%;
     border-collapse: collapse;
@@ -1276,6 +1304,168 @@ tr.is-selected td {
 .schedule-col-pastor,
 .schedule-table-pastor {
     width: 1.5in;
+}
+
+.chapel-schedule-table {
+    width: 7.5in;
+    min-width: 7.5in;
+    max-width: 7.5in;
+}
+
+.chapel-schedule-table-wrap {
+    overflow: visible;
+}
+
+.chapel-schedule-table td {
+    overflow: visible;
+}
+
+.chapel-schedule-col-week {
+    width: 0.55in;
+}
+
+.chapel-schedule-col-date {
+    width: 1.35in;
+}
+
+.chapel-schedule-col-psalm {
+    width: 1.35in;
+}
+
+.chapel-schedule-col-text {
+    width: 1.65in;
+}
+
+.chapel-schedule-col-hymns {
+    width: 1.55in;
+}
+
+.chapel-schedule-col-sc {
+    width: 1.05in;
+}
+
+.chapel-schedule-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 0;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.chapel-schedule-textarea {
+    min-height: 3.2em;
+    resize: vertical;
+}
+
+.chapel-schedule-hymn-input + .chapel-schedule-hymn-input,
+.chapel-schedule-small-catechism-input + .chapel-schedule-small-catechism-input {
+    margin-top: 4px;
+}
+
+.chapel-observance-anchor {
+    margin-top: 4px;
+}
+
+.chapel-observance-anchor .service-card-suggestion-list {
+    max-width: min(90vw, 320px);
+    z-index: 100;
+}
+
+.chapel-baptismal-remembrance {
+    margin-top: 4px;
+    font: bold 11px Arial, Helvetica, sans-serif;
+    color: #222222;
+}
+
+.chapel-schedule-sc-cell {
+    position: relative;
+}
+
+.chapel-schedule-actions-cell {
+    position: absolute;
+    left: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
+    white-space: nowrap;
+}
+
+.chapel-week-save-button,
+.chapel-week-delete-button,
+.chapel-delete-confirm-yes,
+.chapel-delete-confirm-no {
+    display: inline-block;
+    padding: 3px 6px;
+    border: 1px solid #222222;
+    font: 11px Arial, Helvetica, sans-serif;
+    cursor: pointer;
+}
+
+.chapel-week-save-button {
+    background-color: #d8e4f8;
+    color: #18315f;
+}
+
+.chapel-week-save-button:disabled {
+    border-color: #b8b8b8;
+    background-color: #eeeeee;
+    color: #888888;
+    cursor: not-allowed;
+}
+
+.chapel-save-status {
+    align-self: center;
+    color: #2b5f2f;
+    font: bold 11px Arial, Helvetica, sans-serif;
+}
+
+.chapel-save-status.is-error {
+    color: #9b1f1f;
+}
+
+.chapel-week-delete-button,
+.chapel-delete-confirm-yes {
+    background-color: #b13232;
+    color: #ffffff;
+}
+
+.chapel-delete-confirm {
+    position: absolute;
+    z-index: 120;
+    width: 120px;
+    margin-top: 4px;
+    padding: 6px;
+    border: 1px solid #8a1f1f;
+    background-color: #fff7f7;
+    color: #222222;
+    box-shadow: 0 4px 10px rgba(17, 17, 17, 0.12);
+    font: 11px Arial, Helvetica, sans-serif;
+}
+
+.chapel-delete-confirm-no {
+    margin-top: 4px;
+    background-color: #f5f5f5;
+    color: #222222;
+}
+
+.chapel-schedule-input:focus {
+    outline: 1px solid #3a64af;
+    background-color: #ffffff;
+}
+
+@media print {
+    .chapel-schedule-actions,
+    .main-nav,
+    .footer {
+        display: none;
+    }
+
+    .chapel-schedule-input {
+        outline: 0;
+    }
 }
 
 .schedule-primary-text {

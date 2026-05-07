@@ -20,6 +20,10 @@ $nav_dropdowns = [
         ['href' => 'update-service.php', 'label' => 'Update a Service'],
         ['href' => 'remove-service.php', 'label' => 'Remove/Restore Service'],
     ],
+    'Schedules' => [
+        ['href' => 'chapel-schedule.php', 'label' => 'Chapel Schedule'],
+        ['href' => 'schedule.php', 'label' => 'Service Schedule'],
+    ],
 ];
 $database_nav_items = [
     ['href' => 'leaders.php', 'label' => 'Leaders'],
@@ -85,7 +89,6 @@ usort(
                         </ul>
                     </li>
                 <?php endforeach; ?>
-                <li><a href="schedule.php">Service Schedule</a></li>
                 <li class="nav-item-has-dropdown nav-item-right nav-item-gear">
                     <a href="#" class="nav-link-with-caret" aria-haspopup="true" aria-label="Database">⚙</a>
                     <ul class="nav-dropdown">
