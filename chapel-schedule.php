@@ -571,6 +571,10 @@ include 'includes/header.php';
             return;
         }
 
+        if (document.activeElement && row.contains(document.activeElement) && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
+
         setRowSaving(row, true);
         setRowSaveStatus(row, '', false);
 
