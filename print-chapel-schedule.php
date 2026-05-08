@@ -11,15 +11,11 @@ require_once __DIR__ . '/includes/db/service-db-read.php';
 require_once __DIR__ . '/includes/db/chapel-schedule-db.php';
 
 $selectedSchoolYear = trim((string) ($_GET['school_year'] ?? ''));
-$selectedDateSort = strtolower(trim((string) ($_GET['date_sort'] ?? 'asc')));
-if (!in_array($selectedDateSort, ['asc', 'desc'], true)) {
-    $selectedDateSort = 'asc';
-}
 $schoolYearOptions = oflc_chapel_schedule_db_fetch_school_years($pdo);
 if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOptions, true)) {
     $selectedSchoolYear = '';
 }
-$chapelRows = oflc_chapel_schedule_db_fetch_rows($pdo, $selectedSchoolYear, $selectedDateSort);
+$chapelRows = oflc_chapel_schedule_db_fetch_rows($pdo, $selectedSchoolYear, 'asc');
 $nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($chapelRows);
 $printTitle = 'Chapel Schedule';
 $printSchoolYears = [];

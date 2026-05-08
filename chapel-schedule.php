@@ -64,21 +64,28 @@ function oflc_chapel_schedule_resolve_hymn_ids(array $labels, array $lookupByKey
     return array_values(array_unique($hymnIds));
 }
 
-function oflc_chapel_schedule_resolve_small_catechism_ids(array $labels, array $lookupByKey, array &$errors, int $weekNumber): array
+function oflc_chapel_schedule_resolve_small_catechism_ids(array $labels, array $lookupByKey): array
 {
     $ids = [];
 
     foreach ($labels as $label) {
         $id = (int) ($lookupByKey[strtolower($label)] ?? 0);
         if ($id <= 0) {
-            $errors[] = 'Week ' . $weekNumber . ': SC "' . $label . '" must match Small Catechism text.';
+            $ids[] = 999;
             continue;
         }
 
         $ids[] = $id;
     }
 
-    return array_values(array_unique($ids));
+    return $ids;
+}
+
+function oflc_chapel_schedule_filter_custom_small_catechism_labels(array $labels, array $lookupByKey): array
+{
+    return array_values(array_filter($labels, static function (string $label) use ($lookupByKey): bool {
+        return (int) ($lookupByKey[strtolower($label)] ?? 0) <= 0;
+    }));
 }
 
 oflc_chapel_schedule_db_ensure_tables($pdo);
@@ -87,6 +94,7 @@ $formErrors = [];
 $formNotice = '';
 $hymnCatalog = oflc_service_db_fetch_hymn_catalog($pdo);
 $smallCatechismOptions = oflc_service_db_fetch_small_catechism_options($pdo);
+$customSmallCatechismOptions = oflc_chapel_schedule_db_fetch_custom_small_catechism_options();
 $smallCatechismLookup = oflc_chapel_schedule_build_small_catechism_lookup($smallCatechismOptions);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -124,7 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $hymnIds = oflc_chapel_schedule_resolve_hymn_ids($hymnLabels, $hymnCatalog['lookup_by_key'], $formErrors, $weekNumber);
-            $smallCatechismIds = oflc_chapel_schedule_resolve_small_catechism_ids($smallCatechismLabels, $smallCatechismLookup, $formErrors, $weekNumber);
+            $smallCatechismIds = oflc_chapel_schedule_resolve_small_catechism_ids($smallCatechismLabels, $smallCatechismLookup);
+            $customSmallCatechismLabels = oflc_chapel_schedule_filter_custom_small_catechism_labels($smallCatechismLabels, $smallCatechismLookup);
 
             if ($formErrors === []) {
                 $chapelScheduleId = oflc_chapel_schedule_db_save_row($pdo, [
@@ -137,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 oflc_chapel_schedule_db_replace_hymn_links($pdo, $chapelScheduleId, $hymnIds, $today);
                 oflc_chapel_schedule_db_replace_small_catechism_links($pdo, $chapelScheduleId, $smallCatechismIds, $today);
+                oflc_chapel_schedule_db_replace_custom_small_catechism_labels($chapelScheduleId, $customSmallCatechismLabels);
                 $formNotice = 'Chapel week saved.';
             }
         }
@@ -173,9 +183,6 @@ $printChapelScheduleParams = [];
 if ($selectedSchoolYear !== '') {
     $printChapelScheduleParams['school_year'] = $selectedSchoolYear;
 }
-if ($selectedDateSort !== 'asc') {
-    $printChapelScheduleParams['date_sort'] = $selectedDateSort;
-}
 $printChapelScheduleUrl = 'print-chapel-schedule.php' . ($printChapelScheduleParams !== [] ? '?' . http_build_query($printChapelScheduleParams) : '');
 
 include 'includes/header.php';
@@ -194,6 +201,9 @@ include 'includes/header.php';
 <datalist id="chapel-hymn-options">
     <?php foreach ($hymnCatalog['suggestions'] as $hymnSuggestion): ?>
         <option value="<?php echo htmlspecialchars((string) $hymnSuggestion, ENT_QUOTES, 'UTF-8'); ?>"></option>
+    <?php endforeach; ?>
+    <?php foreach ($customSmallCatechismOptions as $customSmallCatechismOption): ?>
+        <option value="<?php echo htmlspecialchars((string) $customSmallCatechismOption, ENT_QUOTES, 'UTF-8'); ?>"></option>
     <?php endforeach; ?>
 </datalist>
 
@@ -306,7 +316,7 @@ include 'includes/header.php';
                             <?php endfor; ?>
                         </td>
                         <td class="chapel-schedule-sc-cell">
-                            <?php for ($smallCatechismSlot = 0; $smallCatechismSlot < 2; $smallCatechismSlot++): ?>
+                            <?php for ($smallCatechismSlot = 0; $smallCatechismSlot < 3; $smallCatechismSlot++): ?>
                                 <input
                                     type="text"
                                     class="chapel-schedule-input chapel-schedule-small-catechism-input"
@@ -685,7 +695,7 @@ include 'includes/header.php';
     function appendSmallCatechismInputs(cell, rowKey) {
         var index;
         var input;
-        for (index = 0; index < 2; index++) {
+        for (index = 0; index < 3; index++) {
             input = document.createElement('input');
             input.type = 'text';
             input.className = 'chapel-schedule-input chapel-schedule-small-catechism-input';

@@ -195,6 +195,9 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
 
     $window = oflc_get_liturgical_window($date, 7, 7);
     foreach ($window['entries'] ?? [] as $entry) {
+        foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
+            $logicKeys[] = $logicKey;
+        }
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
             $logicKeys[] = $logicKey;
         }
@@ -211,13 +214,32 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
 
     foreach ($window['entries'] ?? [] as $entry) {
         $entryDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($entry['date'] ?? ''));
+        $dateLabel = $entryDate instanceof DateTimeImmutable ? $entryDate->format('D m/d') : (string) ($entry['date'] ?? '');
+        foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
+            if (in_array($logicKey, $sundayLogicKeys, true)) {
+                continue;
+            }
+
+            $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            oflc_chapel_schedule_db_add_observance_suggestion(
+                $pdo,
+                $suggestions,
+                $psalmsBySuggestion,
+                $name . ' (' . $dateLabel . ')',
+                $logicKey
+            );
+        }
+
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
             $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
             if ($name === '') {
                 continue;
             }
 
-            $dateLabel = $entryDate instanceof DateTimeImmutable ? $entryDate->format('D m/d') : (string) ($entry['date'] ?? '');
             oflc_chapel_schedule_db_add_observance_suggestion(
                 $pdo,
                 $suggestions,
@@ -254,6 +276,140 @@ function oflc_chapel_schedule_db_fetch_school_years(PDO $pdo): array
              ORDER BY school_year ASC"
         )
         ->fetchAll(PDO::FETCH_COLUMN);
+}
+
+function oflc_chapel_schedule_db_custom_small_catechism_path(): string
+{
+    return __DIR__ . '/../../chapel-small-catechism-custom.json';
+}
+
+function oflc_chapel_schedule_db_clean_label_list(array $labels): array
+{
+    return array_values(array_filter(array_map(static function ($label): string {
+        return trim((string) $label);
+    }, $labels), static function (string $label): bool {
+        return $label !== '';
+    }));
+}
+
+function oflc_chapel_schedule_db_read_custom_small_catechism_data(): array
+{
+    $path = oflc_chapel_schedule_db_custom_small_catechism_path();
+    if (!is_file($path)) {
+        return [
+            'usage' => [],
+            'options' => [],
+        ];
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), true);
+    if (!is_array($decoded)) {
+        return [
+            'usage' => [],
+            'options' => [],
+        ];
+    }
+
+    return [
+        'usage' => isset($decoded['usage']) && is_array($decoded['usage']) ? $decoded['usage'] : [],
+        'options' => isset($decoded['options']) && is_array($decoded['options']) ? oflc_chapel_schedule_db_clean_label_list($decoded['options']) : [],
+    ];
+}
+
+function oflc_chapel_schedule_db_write_custom_small_catechism_data(array $data): void
+{
+    $path = oflc_chapel_schedule_db_custom_small_catechism_path();
+    $directory = dirname($path);
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    ksort($data['usage']);
+    $data['options'] = oflc_chapel_schedule_db_clean_label_list(array_values(array_unique($data['options'] ?? [])));
+    sort($data['options'], SORT_NATURAL | SORT_FLAG_CASE);
+
+    $payload = [
+        'usage' => (object) ($data['usage'] ?? []),
+        'options' => $data['options'],
+    ];
+
+    file_put_contents(
+        $path,
+        json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL,
+        LOCK_EX
+    );
+}
+
+function oflc_chapel_schedule_db_fetch_custom_small_catechism_options(): array
+{
+    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
+    $labels = $data['options'];
+    foreach ($data['usage'] as $usageLabels) {
+        if (is_array($usageLabels)) {
+            $labels = array_merge($labels, $usageLabels);
+        }
+    }
+
+    $labels = oflc_chapel_schedule_db_clean_label_list(array_values(array_unique($labels)));
+    sort($labels, SORT_NATURAL | SORT_FLAG_CASE);
+
+    return $labels;
+}
+
+function oflc_chapel_schedule_db_fetch_custom_small_catechism_labels_by_schedule(array $chapelScheduleIds): array
+{
+    $idLookup = array_flip(array_map('strval', array_filter(array_map('intval', $chapelScheduleIds), static function (int $id): bool {
+        return $id > 0;
+    })));
+    if ($idLookup === []) {
+        return [];
+    }
+
+    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
+    $labelsBySchedule = [];
+    foreach ($data['usage'] as $scheduleId => $labels) {
+        if (!isset($idLookup[(string) $scheduleId]) || !is_array($labels)) {
+            continue;
+        }
+
+        $cleanLabels = array_values(array_map(static function ($label): string {
+            return trim((string) $label);
+        }, $labels));
+        if ($cleanLabels !== []) {
+            $labelsBySchedule[(int) $scheduleId] = $cleanLabels;
+        }
+    }
+
+    return $labelsBySchedule;
+}
+
+function oflc_chapel_schedule_db_replace_custom_small_catechism_labels(int $chapelScheduleId, array $labels): void
+{
+    if ($chapelScheduleId <= 0) {
+        return;
+    }
+
+    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
+    $labels = oflc_chapel_schedule_db_clean_label_list($labels);
+    if ($labels === []) {
+        unset($data['usage'][(string) $chapelScheduleId]);
+    } else {
+        $data['usage'][(string) $chapelScheduleId] = $labels;
+        $data['options'] = array_merge($data['options'], $labels);
+    }
+
+    oflc_chapel_schedule_db_write_custom_small_catechism_data($data);
+}
+
+function oflc_chapel_schedule_db_delete_custom_small_catechism_labels(int $chapelScheduleId): void
+{
+    if ($chapelScheduleId <= 0) {
+        return;
+    }
+
+    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
+    unset($data['usage'][(string) $chapelScheduleId]);
+    oflc_chapel_schedule_db_write_custom_small_catechism_data($data);
 }
 
 function oflc_chapel_schedule_db_fetch_rows(PDO $pdo, string $schoolYear = '', string $dateSort = 'asc'): array
@@ -347,11 +503,12 @@ function oflc_chapel_schedule_db_fetch_small_catechism_labels_by_schedule(PDO $p
     $placeholders = implode(', ', array_fill(0, count($chapelScheduleIds), '?'));
     $stmt = $pdo->prepare(
         'SELECT csc.chapel_schedule_id,
+                csc.small_catechism_id,
                 sm.chief_part,
                 sm.question,
                 sm.abbreviation
          FROM chapel_small_catechism_usage_db csc
-         INNER JOIN small_catechism_mysql sm ON sm.id = csc.small_catechism_id
+         LEFT JOIN small_catechism_mysql sm ON sm.id = csc.small_catechism_id
          WHERE csc.is_active = 1
            AND csc.chapel_schedule_id IN (' . $placeholders . ')
          ORDER BY csc.chapel_schedule_id ASC, csc.sort_order ASC, csc.id ASC'
@@ -359,9 +516,21 @@ function oflc_chapel_schedule_db_fetch_small_catechism_labels_by_schedule(PDO $p
     $stmt->execute($chapelScheduleIds);
 
     $labelsBySchedule = [];
+    $customLabelsBySchedule = oflc_chapel_schedule_db_fetch_custom_small_catechism_labels_by_schedule($chapelScheduleIds);
+    $customLabelIndexBySchedule = [];
     foreach ($stmt->fetchAll() as $row) {
         $scheduleId = (int) ($row['chapel_schedule_id'] ?? 0);
         if ($scheduleId <= 0) {
+            continue;
+        }
+
+        if ((int) ($row['small_catechism_id'] ?? 0) === 999) {
+            $customIndex = $customLabelIndexBySchedule[$scheduleId] ?? 0;
+            $customLabel = trim((string) ($customLabelsBySchedule[$scheduleId][$customIndex] ?? ''));
+            $customLabelIndexBySchedule[$scheduleId] = $customIndex + 1;
+            if ($customLabel !== '') {
+                $labelsBySchedule[$scheduleId][] = $customLabel;
+            }
             continue;
         }
 
@@ -541,4 +710,5 @@ function oflc_chapel_schedule_db_delete_row(PDO $pdo, int $chapelScheduleId): vo
     $pdo->prepare('DELETE FROM chapel_hymn_usage_db WHERE chapel_schedule_id = ?')->execute([$chapelScheduleId]);
     $pdo->prepare('DELETE FROM chapel_small_catechism_usage_db WHERE chapel_schedule_id = ?')->execute([$chapelScheduleId]);
     $pdo->prepare('DELETE FROM chapel_schedule_db WHERE id = ?')->execute([$chapelScheduleId]);
+    oflc_chapel_schedule_db_delete_custom_small_catechism_labels($chapelScheduleId);
 }

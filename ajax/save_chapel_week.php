@@ -65,21 +65,28 @@ function oflc_chapel_ajax_resolve_hymn_ids(array $labels, array $lookupByKey, ar
     return array_values(array_unique($hymnIds));
 }
 
-function oflc_chapel_ajax_resolve_small_catechism_ids(array $labels, array $lookupByKey, array &$errors, int $weekNumber): array
+function oflc_chapel_ajax_resolve_small_catechism_ids(array $labels, array $lookupByKey): array
 {
     $ids = [];
 
     foreach ($labels as $label) {
         $id = (int) ($lookupByKey[strtolower($label)] ?? 0);
         if ($id <= 0) {
-            $errors[] = 'Week ' . $weekNumber . ': SC "' . $label . '" must match Small Catechism text.';
+            $ids[] = 999;
             continue;
         }
 
         $ids[] = $id;
     }
 
-    return array_values(array_unique($ids));
+    return $ids;
+}
+
+function oflc_chapel_ajax_filter_custom_small_catechism_labels(array $labels, array $lookupByKey): array
+{
+    return array_values(array_filter($labels, static function (string $label) use ($lookupByKey): bool {
+        return (int) ($lookupByKey[strtolower($label)] ?? 0) <= 0;
+    }));
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -115,7 +122,8 @@ try {
     $smallCatechismOptions = oflc_service_db_fetch_small_catechism_options($pdo);
     $smallCatechismLookup = oflc_chapel_ajax_build_small_catechism_lookup($smallCatechismOptions);
     $hymnIds = oflc_chapel_ajax_resolve_hymn_ids($hymnLabels, $hymnCatalog['lookup_by_key'], $errors, $weekNumber);
-    $smallCatechismIds = oflc_chapel_ajax_resolve_small_catechism_ids($smallCatechismLabels, $smallCatechismLookup, $errors, $weekNumber);
+    $smallCatechismIds = oflc_chapel_ajax_resolve_small_catechism_ids($smallCatechismLabels, $smallCatechismLookup);
+    $customSmallCatechismLabels = oflc_chapel_ajax_filter_custom_small_catechism_labels($smallCatechismLabels, $smallCatechismLookup);
 
     if ($errors !== []) {
         http_response_code(400);
@@ -134,6 +142,7 @@ try {
     $today = date('Y-m-d');
     oflc_chapel_schedule_db_replace_hymn_links($pdo, $chapelScheduleId, $hymnIds, $today);
     oflc_chapel_schedule_db_replace_small_catechism_links($pdo, $chapelScheduleId, $smallCatechismIds, $today);
+    oflc_chapel_schedule_db_replace_custom_small_catechism_labels($chapelScheduleId, $customSmallCatechismLabels);
 
     $schoolYear = oflc_chapel_schedule_db_format_school_year($date);
     echo json_encode([
