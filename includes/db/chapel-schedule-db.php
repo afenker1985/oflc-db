@@ -278,19 +278,24 @@ function oflc_chapel_schedule_db_fetch_school_years(PDO $pdo): array
         ->fetchAll(PDO::FETCH_COLUMN);
 }
 
+function oflc_chapel_schedule_db_project_root(): string
+{
+    return dirname(__DIR__, 2);
+}
+
 function oflc_chapel_schedule_db_custom_small_catechism_options_path(): string
 {
-    return __DIR__ . '/../../chapel-small-catechism-custom-options.json';
+    return oflc_chapel_schedule_db_project_root() . '/chapel-small-catechism-custom-options.json';
 }
 
 function oflc_chapel_schedule_db_custom_small_catechism_usage_path(): string
 {
-    return __DIR__ . '/../../chapel-small-catechism-custom-usage.json';
+    return oflc_chapel_schedule_db_project_root() . '/chapel-small-catechism-custom-usage.json';
 }
 
 function oflc_chapel_schedule_db_legacy_custom_small_catechism_path(): string
 {
-    return __DIR__ . '/../../chapel-small-catechism-custom.json';
+    return oflc_chapel_schedule_db_project_root() . '/chapel-small-catechism-custom.json';
 }
 
 function oflc_chapel_schedule_db_clean_label_list(array $labels): array
@@ -341,7 +346,7 @@ function oflc_chapel_schedule_db_write_json_file(string $path, array $data): voi
     }
 
     if (function_exists('oflc_chapel_ajax_debug_log')) {
-        oflc_chapel_ajax_debug_log('json written path=' . $path . ' bytes=' . $bytesWritten);
+        oflc_chapel_ajax_debug_log('json written file=' . basename($path) . ' bytes=' . $bytesWritten);
     }
 }
 
