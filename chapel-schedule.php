@@ -328,7 +328,7 @@ include 'includes/header.php';
                                 >
                             <?php endfor; ?>
                             <div class="chapel-schedule-actions-cell">
-                                <button type="button" class="chapel-week-save-button" disabled>Save</button>
+                                <button type="button" class="chapel-week-save-button is-disabled" aria-disabled="true">Save</button>
                                 <button type="button" class="chapel-week-delete-button" aria-label="Delete chapel week">×</button>
                                 <span class="chapel-save-status" aria-live="polite"></span>
                                 <div class="chapel-delete-confirm" hidden>
@@ -498,7 +498,9 @@ include 'includes/header.php';
             return;
         }
 
-        saveButton.disabled = !isDirty;
+        saveButton.disabled = false;
+        saveButton.classList.toggle('is-disabled', !isDirty);
+        saveButton.setAttribute('aria-disabled', isDirty ? 'false' : 'true');
         saveButton.textContent = 'Save';
         if (status && isDirty) {
             status.textContent = '';
@@ -519,6 +521,10 @@ include 'includes/header.php';
 
         saveButton.disabled = !!isSaving;
         saveButton.textContent = isSaving ? 'Saving...' : 'Save';
+        if (isSaving) {
+            saveButton.classList.remove('is-disabled');
+            saveButton.setAttribute('aria-disabled', 'true');
+        }
         row.classList.toggle('is-saving', !!isSaving);
     }
 
@@ -717,9 +723,9 @@ include 'includes/header.php';
 
         cell.classList.add('chapel-schedule-sc-cell');
         saveButton.type = 'button';
-        saveButton.className = 'chapel-week-save-button';
+        saveButton.className = 'chapel-week-save-button is-disabled';
+        saveButton.setAttribute('aria-disabled', 'true');
         saveButton.textContent = 'Save';
-        saveButton.disabled = true;
 
         deleteButton.type = 'button';
         deleteButton.className = 'chapel-week-delete-button';

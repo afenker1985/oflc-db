@@ -1409,11 +1409,11 @@ tr.is-selected td {
     color: #18315f;
 }
 
+.chapel-week-save-button.is-disabled,
 .chapel-week-save-button:disabled {
     border-color: #b8b8b8;
     background-color: #eeeeee;
     color: #888888;
-    cursor: not-allowed;
 }
 
 .chapel-save-status {
