@@ -167,7 +167,7 @@ function oflc_get_one_year_week(DateTimeImmutable $date)
         return 6 - oflc_get_week_difference($sunday, $epiphany_sunday);
     }
 
-    if ($sunday >= $transfiguration && $sunday <= $end_of_year) {
+    if ($sunday >= $transfiguration && $sunday < $end_of_year) {
         return 12 + oflc_get_week_difference($transfiguration, $sunday);
     }
 
