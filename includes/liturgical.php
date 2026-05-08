@@ -6,7 +6,7 @@ require_once __DIR__ . '/liturgical_keys.php';
 
 function oflc_get_liturgical_day(string $date_string)
 {
-    $date = DateTimeImmutable::createFromFormat('Y-m-d', $date_string);
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $date_string);
     if (!$date || $date->format('Y-m-d') !== $date_string) {
         return null;
     }
@@ -135,6 +135,7 @@ function oflc_resolve_fixed_logic_key(int $month, int $day)
 
 function oflc_get_sunday(DateTimeImmutable $date): DateTimeImmutable
 {
+    $date = $date->setTime(0, 0, 0);
     $weekday = (int) $date->format('w');
     return $weekday === 0 ? $date : $date->modify('-' . $weekday . ' days');
 }
