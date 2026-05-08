@@ -432,7 +432,11 @@ include 'includes/header.php';
 
         nextWeek = new Date(year, month - 1, day + 7);
 
-        return dateObject.getDay() === 3 && nextWeek.getMonth() !== dateObject.getMonth();
+        return dateObject.getDay() === 3
+            && (
+                nextWeek.getFullYear() !== dateObject.getFullYear()
+                || nextWeek.getMonth() !== dateObject.getMonth()
+            );
     }
 
     function updateBaptismalRemembrance(row) {

@@ -83,8 +83,11 @@ function oflc_chapel_schedule_db_is_baptismal_remembrance_date(string $date): bo
         return false;
     }
 
-    return $dateObject->format('w') === '3'
-        && $dateObject->modify('+7 days')->format('m') !== $dateObject->format('m');
+    if ($dateObject->format('w') !== '3') {
+        return false;
+    }
+
+    return $dateObject->modify('+7 days')->format('Y-m') !== $dateObject->format('Y-m');
 }
 
 function oflc_chapel_schedule_db_clean_psalm_text($text): string
