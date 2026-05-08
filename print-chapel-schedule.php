@@ -12,6 +12,9 @@ require_once __DIR__ . '/includes/db/chapel-schedule-db.php';
 
 $selectedSchoolYear = trim((string) ($_GET['school_year'] ?? ''));
 $schoolYearOptions = oflc_chapel_schedule_db_fetch_school_years($pdo);
+if ($selectedSchoolYear === '') {
+    $selectedSchoolYear = oflc_chapel_schedule_db_format_school_year(date('Y-m-d'));
+}
 if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOptions, true)) {
     $selectedSchoolYear = '';
 }
