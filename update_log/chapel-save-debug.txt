@@ -5,3 +5,14 @@
 [2026-05-08 14:06:26] hymns saved
 [2026-05-08 14:06:26] sc usage saved ids=7|9|999
 [2026-05-08 14:06:26] custom sc json saved labels=ToD
+[2026-05-08 14:10:05] save_chapel_week.php start
+[2026-05-08 14:10:05] includes loaded
+[2026-05-08 14:10:05] save attempt
+[2026-05-08 14:10:05] row saved id=36
+[2026-05-08 14:10:05] hymns saved
+[2026-05-08 14:10:05] sc usage saved ids=7|9|999
+[2026-05-08 14:10:05] json written path=/Users/aaronfenker/Sites/oflc-db/includes/db/../../chapel-small-catechism-custom-options.json bytes=113
+[2026-05-08 14:10:05] json written path=/Users/aaronfenker/Sites/oflc-db/includes/db/../../chapel-small-catechism-custom-usage.json bytes=147
+[2026-05-08 14:10:05] custom sc json saved labels=ToD
+[2026-05-08 14:10:05] response sent id=36
+[2026-05-08 14:10:05] json written path=/Users/aaronfenker/Sites/oflc-db/includes/db/../../chapel-small-catechism-custom-usage.json bytes=106

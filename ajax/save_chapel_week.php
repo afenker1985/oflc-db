@@ -179,13 +179,20 @@ try {
     oflc_chapel_ajax_debug_log('custom sc json saved labels=' . implode('|', $customSmallCatechismLabels));
 
     $schoolYear = oflc_chapel_schedule_db_format_school_year($date);
-    echo json_encode([
+    $response = [
         'success' => true,
         'id' => $chapelScheduleId,
         'school_year' => $schoolYear,
         'school_year_display' => oflc_chapel_schedule_db_display_school_year($schoolYear),
         'message' => 'Chapel week saved.',
-    ]);
+    ];
+    $encodedResponse = json_encode($response);
+    if ($encodedResponse === false) {
+        throw new RuntimeException('Unable to encode chapel save response.');
+    }
+
+    oflc_chapel_ajax_debug_log('response sent id=' . $chapelScheduleId);
+    echo $encodedResponse;
 } catch (Throwable $e) {
     oflc_chapel_ajax_debug_log('Caught error: ' . $e->getMessage());
     error_log('Chapel week save failed: ' . $e->getMessage());

@@ -339,6 +339,10 @@ function oflc_chapel_schedule_db_write_json_file(string $path, array $data): voi
     if ($bytesWritten === false) {
         throw new RuntimeException('Unable to write chapel SC JSON file: ' . basename($path));
     }
+
+    if (function_exists('oflc_chapel_ajax_debug_log')) {
+        oflc_chapel_ajax_debug_log('json written path=' . $path . ' bytes=' . $bytesWritten);
+    }
 }
 
 function oflc_chapel_schedule_db_read_custom_small_catechism_options_data(): array
