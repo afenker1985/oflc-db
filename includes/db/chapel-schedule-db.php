@@ -320,14 +320,25 @@ function oflc_chapel_schedule_db_write_json_file(string $path, array $data): voi
 {
     $directory = dirname($path);
     if (!is_dir($directory)) {
-        mkdir($directory, 0775, true);
+        $madeDirectory = @mkdir($directory, 0775, true);
+        if (!$madeDirectory && !is_dir($directory)) {
+            throw new RuntimeException('Unable to create JSON storage directory: ' . $directory);
+        }
     }
 
-    file_put_contents(
+    $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($encoded === false) {
+        throw new RuntimeException('Unable to encode chapel SC JSON data.');
+    }
+
+    $bytesWritten = @file_put_contents(
         $path,
-        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL,
+        $encoded . PHP_EOL,
         LOCK_EX
     );
+    if ($bytesWritten === false) {
+        throw new RuntimeException('Unable to write chapel SC JSON file: ' . basename($path));
+    }
 }
 
 function oflc_chapel_schedule_db_read_custom_small_catechism_options_data(): array
