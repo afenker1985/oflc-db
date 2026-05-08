@@ -168,6 +168,7 @@ $latestChapelDateObject = $latestChapelDate !== '' ? DateTimeImmutable::createFr
 $suggestedChapelDate = $latestChapelDateObject instanceof DateTimeImmutable
     ? $latestChapelDateObject->modify('+7 days')->format('Y-m-d')
     : date('Y-m-d');
+$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($chapelRows);
 $printChapelScheduleParams = [];
 if ($selectedSchoolYear !== '') {
     $printChapelScheduleParams['school_year'] = $selectedSchoolYear;
@@ -280,7 +281,8 @@ include 'includes/header.php';
                             </div>
                             <?php
                             $chapelRowDate = trim((string) ($chapelRow['date'] ?? ''));
-                            $showBaptismalRemembrance = $chapelRowDate !== '' && oflc_chapel_schedule_db_is_baptismal_remembrance_date($chapelRowDate);
+                            $showBaptismalRemembrance = $chapelRowDate !== ''
+                                && oflc_chapel_schedule_db_is_baptismal_remembrance_date($chapelRowDate, $nextChapelDateByDate[$chapelRowDate] ?? '');
                             ?>
                             <div class="chapel-baptismal-remembrance"<?php echo $showBaptismalRemembrance ? '' : ' hidden'; ?>>Baptismal Remembrance</div>
                         </td>
@@ -387,6 +389,18 @@ include 'includes/header.php';
         return latest !== '' ? addDaysToDate(latest, 7) : (form ? form.getAttribute('data-suggested-date') || '' : '');
     }
 
+    function getNextScheduledChapelDate(date) {
+        var nextDate = '';
+        Array.prototype.forEach.call(document.querySelectorAll('.chapel-schedule-date-input'), function (dateInput) {
+            var value = String(dateInput.value || '').trim();
+            if (value !== '' && value > date && (nextDate === '' || value < nextDate)) {
+                nextDate = value;
+            }
+        });
+
+        return nextDate;
+    }
+
     function getNextWeekNumber() {
         var largestWeekNumber = 0;
         var fallbackWeekNumber = form ? parseInt(form.getAttribute('data-next-week-number') || '1', 10) : 1;
@@ -430,13 +444,25 @@ include 'includes/header.php';
             return false;
         }
 
-        nextWeek = new Date(year, month - 1, day + 7);
+        if (dateObject.getDay() !== 3) {
+            return false;
+        }
 
-        return dateObject.getDay() === 3
-            && (
-                nextWeek.getFullYear() !== dateObject.getFullYear()
-                || nextWeek.getMonth() !== dateObject.getMonth()
-            );
+        nextWeek = new Date(year, month - 1, day + 7);
+        var nextScheduledDate = getNextScheduledChapelDate(date);
+        if (nextScheduledDate !== '') {
+            var nextScheduledParts = nextScheduledDate.split('-');
+            var nextScheduledYear = parseInt(nextScheduledParts[0], 10);
+            var nextScheduledMonth = parseInt(nextScheduledParts[1], 10);
+            if (!Number.isFinite(nextScheduledYear) || !Number.isFinite(nextScheduledMonth)) {
+                return false;
+            }
+
+            return nextScheduledYear !== year || nextScheduledMonth !== month;
+        }
+
+        return nextWeek.getFullYear() !== dateObject.getFullYear()
+            || nextWeek.getMonth() !== dateObject.getMonth();
     }
 
     function updateBaptismalRemembrance(row) {
@@ -445,6 +471,10 @@ include 'includes/header.php';
         if (notice) {
             notice.hidden = !isBaptismalRemembranceDate(dateInput ? dateInput.value : '');
         }
+    }
+
+    function updateAllBaptismalRemembrances() {
+        Array.prototype.forEach.call(document.querySelectorAll('.chapel-schedule-row'), updateBaptismalRemembrance);
     }
 
     function updateDateDerivedDisplays(row) {
@@ -759,7 +789,7 @@ include 'includes/header.php';
         } else {
             tableBody.appendChild(row);
         }
-        updateDateDerivedDisplays(row);
+        updateAllBaptismalRemembrances();
     }
 
     function hideList(list) {
@@ -904,7 +934,7 @@ include 'includes/header.php';
         if (observanceInput) {
             observanceInput.value = '';
         }
-        updateDateDerivedDisplays(row);
+        updateAllBaptismalRemembrances();
         hideList(list);
         event.target.blur();
     });

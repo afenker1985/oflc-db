@@ -76,7 +76,7 @@ function oflc_chapel_schedule_db_display_school_year(string $schoolYear): string
     return '20' . $matches[1] . '/20' . $matches[2];
 }
 
-function oflc_chapel_schedule_db_is_baptismal_remembrance_date(string $date): bool
+function oflc_chapel_schedule_db_is_baptismal_remembrance_date(string $date, string $nextChapelDate = ''): bool
 {
     $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', $date);
     if (!$dateObject instanceof DateTimeImmutable || $dateObject->format('Y-m-d') !== $date) {
@@ -87,7 +87,36 @@ function oflc_chapel_schedule_db_is_baptismal_remembrance_date(string $date): bo
         return false;
     }
 
+    $nextChapelDate = trim($nextChapelDate);
+    if ($nextChapelDate !== '') {
+        $nextDateObject = DateTimeImmutable::createFromFormat('Y-m-d', $nextChapelDate);
+        if ($nextDateObject instanceof DateTimeImmutable && $nextDateObject->format('Y-m-d') === $nextChapelDate && $nextDateObject > $dateObject) {
+            return $nextDateObject->format('Y-m') !== $dateObject->format('Y-m');
+        }
+    }
+
     return $dateObject->modify('+7 days')->format('Y-m') !== $dateObject->format('Y-m');
+}
+
+function oflc_chapel_schedule_db_build_next_date_lookup(array $rows): array
+{
+    $dates = [];
+    foreach ($rows as $row) {
+        $date = trim((string) ($row['date'] ?? ''));
+        $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        if ($dateObject instanceof DateTimeImmutable && $dateObject->format('Y-m-d') === $date) {
+            $dates[$date] = $date;
+        }
+    }
+
+    sort($dates, SORT_STRING);
+
+    $nextDateByDate = [];
+    foreach (array_values($dates) as $index => $date) {
+        $nextDateByDate[$date] = $dates[$index + 1] ?? '';
+    }
+
+    return $nextDateByDate;
 }
 
 function oflc_chapel_schedule_db_clean_psalm_text($text): string

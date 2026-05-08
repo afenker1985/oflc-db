@@ -20,6 +20,7 @@ if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOpti
     $selectedSchoolYear = '';
 }
 $chapelRows = oflc_chapel_schedule_db_fetch_rows($pdo, $selectedSchoolYear, $selectedDateSort);
+$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($chapelRows);
 $printTitle = 'Chapel Schedule';
 $printSchoolYears = [];
 foreach ($chapelRows as $chapelRow) {
@@ -260,7 +261,8 @@ function oflc_print_chapel_format_observance(string $observance): string
                     <?php foreach ($chapelRows as $chapelRow): ?>
                         <?php
                         $chapelRowDate = trim((string) ($chapelRow['date'] ?? ''));
-                        $showBaptismalRemembrance = $chapelRowDate !== '' && oflc_chapel_schedule_db_is_baptismal_remembrance_date($chapelRowDate);
+                        $showBaptismalRemembrance = $chapelRowDate !== ''
+                            && oflc_chapel_schedule_db_is_baptismal_remembrance_date($chapelRowDate, $nextChapelDateByDate[$chapelRowDate] ?? '');
                         ?>
                         <tr class="service-card-color-dark">
                             <td><?php echo htmlspecialchars((string) ($chapelRow['week_number'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
