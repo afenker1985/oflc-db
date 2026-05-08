@@ -623,6 +623,24 @@ include 'includes/header.php';
             });
     }
 
+    function handleSaveButtonPress(event) {
+        var saveButton = event.target.closest('.chapel-week-save-button');
+        var row;
+
+        if (!saveButton || (typeof event.button === 'number' && event.button !== 0)) {
+            return;
+        }
+
+        event.preventDefault();
+        saveButton.setAttribute('data-save-pressed', '1');
+        window.setTimeout(function () {
+            saveButton.removeAttribute('data-save-pressed');
+        }, 0);
+
+        row = getRow(saveButton);
+        saveWeekRow(row);
+    }
+
     function setRowKeyForSubmit(button) {
         var row = getRow(button);
         if (rowKeyInput && row) {
@@ -952,6 +970,8 @@ include 'includes/header.php';
         event.target.blur();
     });
 
+    document.addEventListener('mousedown', handleSaveButtonPress, true);
+
     document.addEventListener('click', function (event) {
         var saveButton = event.target.closest('.chapel-week-save-button');
         var deleteButton = event.target.closest('.chapel-week-delete-button');
@@ -961,6 +981,9 @@ include 'includes/header.php';
 
         if (saveButton) {
             event.preventDefault();
+            if (saveButton.getAttribute('data-save-pressed') === '1') {
+                return;
+            }
             row = getRow(saveButton);
             saveWeekRow(row);
             return;
