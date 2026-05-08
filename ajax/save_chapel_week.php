@@ -1,11 +1,40 @@
 <?php
 declare(strict_types=1);
 
+header('Content-Type: application/json');
+
+function oflc_chapel_ajax_debug_log(string $message): void
+{
+    $path = __DIR__ . '/../update_log/chapel-save-debug.txt';
+    $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+    @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
+}
+
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+    if ($error === null) {
+        return;
+    }
+
+    $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+    if (!in_array((int) ($error['type'] ?? 0), $fatalTypes, true)) {
+        return;
+    }
+
+    oflc_chapel_ajax_debug_log(
+        'Fatal error: ' . ($error['message'] ?? 'unknown')
+        . ' in ' . ($error['file'] ?? 'unknown file')
+        . ':' . ($error['line'] ?? 'unknown line')
+    );
+});
+
+oflc_chapel_ajax_debug_log('save_chapel_week.php start');
+
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/db/service-db-read.php';
 require_once __DIR__ . '/../includes/db/chapel-schedule-db.php';
 
-header('Content-Type: application/json');
+oflc_chapel_ajax_debug_log('includes loaded');
 
 function oflc_chapel_ajax_parse_values($value): array
 {
@@ -96,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 try {
+    oflc_chapel_ajax_debug_log('save attempt');
     oflc_chapel_schedule_db_ensure_tables($pdo);
 
     $errors = [];
@@ -139,10 +169,14 @@ try {
         'text' => $text,
         'observance_name' => $observanceName,
     ]);
+    oflc_chapel_ajax_debug_log('row saved id=' . $chapelScheduleId);
     $today = date('Y-m-d');
     oflc_chapel_schedule_db_replace_hymn_links($pdo, $chapelScheduleId, $hymnIds, $today);
+    oflc_chapel_ajax_debug_log('hymns saved');
     oflc_chapel_schedule_db_replace_small_catechism_links($pdo, $chapelScheduleId, $smallCatechismIds, $today);
+    oflc_chapel_ajax_debug_log('sc usage saved ids=' . implode('|', $smallCatechismIds));
     oflc_chapel_schedule_db_replace_custom_small_catechism_labels($chapelScheduleId, $customSmallCatechismLabels);
+    oflc_chapel_ajax_debug_log('custom sc json saved labels=' . implode('|', $customSmallCatechismLabels));
 
     $schoolYear = oflc_chapel_schedule_db_format_school_year($date);
     echo json_encode([
@@ -153,6 +187,7 @@ try {
         'message' => 'Chapel week saved.',
     ]);
 } catch (Throwable $e) {
+    oflc_chapel_ajax_debug_log('Caught error: ' . $e->getMessage());
     error_log('Chapel week save failed: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Unable to save chapel week: ' . $e->getMessage()]);

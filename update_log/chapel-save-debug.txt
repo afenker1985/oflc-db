@@ -1,0 +1,7 @@
+[2026-05-08 14:06:26] save_chapel_week.php start
+[2026-05-08 14:06:26] includes loaded
+[2026-05-08 14:06:26] save attempt
+[2026-05-08 14:06:26] row saved id=35
+[2026-05-08 14:06:26] hymns saved
+[2026-05-08 14:06:26] sc usage saved ids=7|9|999
+[2026-05-08 14:06:26] custom sc json saved labels=ToD
