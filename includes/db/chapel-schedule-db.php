@@ -278,7 +278,17 @@ function oflc_chapel_schedule_db_fetch_school_years(PDO $pdo): array
         ->fetchAll(PDO::FETCH_COLUMN);
 }
 
-function oflc_chapel_schedule_db_custom_small_catechism_path(): string
+function oflc_chapel_schedule_db_custom_small_catechism_options_path(): string
+{
+    return __DIR__ . '/../../chapel-small-catechism-custom-options.json';
+}
+
+function oflc_chapel_schedule_db_custom_small_catechism_usage_path(): string
+{
+    return __DIR__ . '/../../chapel-small-catechism-custom-usage.json';
+}
+
+function oflc_chapel_schedule_db_legacy_custom_small_catechism_path(): string
 {
     return __DIR__ . '/../../chapel-small-catechism-custom.json';
 }
@@ -292,68 +302,157 @@ function oflc_chapel_schedule_db_clean_label_list(array $labels): array
     }));
 }
 
-function oflc_chapel_schedule_db_read_custom_small_catechism_data(): array
+function oflc_chapel_schedule_db_read_json_file(string $path, array $fallback): array
 {
-    $path = oflc_chapel_schedule_db_custom_small_catechism_path();
     if (!is_file($path)) {
-        return [
-            'usage' => [],
-            'options' => [],
-        ];
+        return $fallback;
     }
 
     $decoded = json_decode((string) file_get_contents($path), true);
     if (!is_array($decoded)) {
-        return [
-            'usage' => [],
-            'options' => [],
-        ];
+        return $fallback;
     }
 
-    return [
-        'usage' => isset($decoded['usage']) && is_array($decoded['usage']) ? $decoded['usage'] : [],
-        'options' => isset($decoded['options']) && is_array($decoded['options']) ? oflc_chapel_schedule_db_clean_label_list($decoded['options']) : [],
-    ];
+    return $decoded;
 }
 
-function oflc_chapel_schedule_db_write_custom_small_catechism_data(array $data): void
+function oflc_chapel_schedule_db_write_json_file(string $path, array $data): void
 {
-    $path = oflc_chapel_schedule_db_custom_small_catechism_path();
     $directory = dirname($path);
     if (!is_dir($directory)) {
         mkdir($directory, 0775, true);
     }
 
-    ksort($data['usage']);
-    $data['options'] = oflc_chapel_schedule_db_clean_label_list(array_values(array_unique($data['options'] ?? [])));
-    sort($data['options'], SORT_NATURAL | SORT_FLAG_CASE);
-
-    $payload = [
-        'usage' => (object) ($data['usage'] ?? []),
-        'options' => $data['options'],
-    ];
-
     file_put_contents(
         $path,
-        json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL,
+        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL,
         LOCK_EX
     );
 }
 
-function oflc_chapel_schedule_db_fetch_custom_small_catechism_options(): array
+function oflc_chapel_schedule_db_read_custom_small_catechism_options_data(): array
 {
-    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
-    $labels = $data['options'];
-    foreach ($data['usage'] as $usageLabels) {
-        if (is_array($usageLabels)) {
-            $labels = array_merge($labels, $usageLabels);
+    $data = oflc_chapel_schedule_db_read_json_file(oflc_chapel_schedule_db_custom_small_catechism_options_path(), [
+        'next_id' => 1,
+        'options' => [],
+    ]);
+    $options = [];
+    $nextId = max(1, (int) ($data['next_id'] ?? 1));
+
+    foreach (($data['options'] ?? []) as $option) {
+        if (!is_array($option)) {
+            continue;
+        }
+
+        $id = (int) ($option['id'] ?? 0);
+        $label = trim((string) ($option['label'] ?? ''));
+        if ($id <= 0 || $label === '') {
+            continue;
+        }
+
+        $options[] = [
+            'id' => $id,
+            'label' => $label,
+        ];
+        $nextId = max($nextId, $id + 1);
+    }
+
+    usort($options, static function (array $left, array $right): int {
+        return strnatcasecmp((string) $left['label'], (string) $right['label']);
+    });
+
+    return [
+        'next_id' => $nextId,
+        'options' => $options,
+    ];
+}
+
+function oflc_chapel_schedule_db_write_custom_small_catechism_options_data(array $data): void
+{
+    oflc_chapel_schedule_db_write_json_file(oflc_chapel_schedule_db_custom_small_catechism_options_path(), [
+        'next_id' => max(1, (int) ($data['next_id'] ?? 1)),
+        'options' => array_values($data['options'] ?? []),
+    ]);
+}
+
+function oflc_chapel_schedule_db_read_custom_small_catechism_usage_data(): array
+{
+    $data = oflc_chapel_schedule_db_read_json_file(oflc_chapel_schedule_db_custom_small_catechism_usage_path(), [
+        'usage' => [],
+    ]);
+    $usage = [];
+
+    foreach (($data['usage'] ?? []) as $scheduleId => $optionIds) {
+        $scheduleId = (int) $scheduleId;
+        if ($scheduleId <= 0 || !is_array($optionIds)) {
+            continue;
+        }
+
+        $usage[(string) $scheduleId] = array_values(array_filter(array_map('intval', $optionIds), static function (int $id): bool {
+            return $id > 0;
+        }));
+    }
+
+    ksort($usage);
+
+    return [
+        'usage' => $usage,
+    ];
+}
+
+function oflc_chapel_schedule_db_write_custom_small_catechism_usage_data(array $data): void
+{
+    $usage = [];
+    foreach (($data['usage'] ?? []) as $scheduleId => $optionIds) {
+        $scheduleId = (int) $scheduleId;
+        if ($scheduleId <= 0 || !is_array($optionIds)) {
+            continue;
+        }
+
+        $cleanOptionIds = array_values(array_filter(array_map('intval', $optionIds), static function (int $id): bool {
+            return $id > 0;
+        }));
+        if ($cleanOptionIds !== []) {
+            $usage[(string) $scheduleId] = $cleanOptionIds;
+        }
+    }
+    ksort($usage);
+
+    oflc_chapel_schedule_db_write_json_file(oflc_chapel_schedule_db_custom_small_catechism_usage_path(), [
+        'usage' => (object) $usage,
+    ]);
+}
+
+function oflc_chapel_schedule_db_find_or_create_custom_small_catechism_option_id(string $label, array &$optionsData): int
+{
+    $label = trim($label);
+    if ($label === '') {
+        return 0;
+    }
+
+    foreach ($optionsData['options'] as $option) {
+        if (strcasecmp((string) ($option['label'] ?? ''), $label) === 0) {
+            return (int) ($option['id'] ?? 0);
         }
     }
 
-    $labels = oflc_chapel_schedule_db_clean_label_list(array_values(array_unique($labels)));
-    sort($labels, SORT_NATURAL | SORT_FLAG_CASE);
+    $id = max(1, (int) ($optionsData['next_id'] ?? 1));
+    $optionsData['options'][] = [
+        'id' => $id,
+        'label' => $label,
+    ];
+    $optionsData['next_id'] = $id + 1;
 
-    return $labels;
+    return $id;
+}
+
+function oflc_chapel_schedule_db_fetch_custom_small_catechism_options(): array
+{
+    $data = oflc_chapel_schedule_db_read_custom_small_catechism_options_data();
+
+    return oflc_chapel_schedule_db_clean_label_list(array_map(static function (array $option): string {
+        return (string) ($option['label'] ?? '');
+    }, $data['options']));
 }
 
 function oflc_chapel_schedule_db_fetch_custom_small_catechism_labels_by_schedule(array $chapelScheduleIds): array
@@ -365,18 +464,24 @@ function oflc_chapel_schedule_db_fetch_custom_small_catechism_labels_by_schedule
         return [];
     }
 
-    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
+    $optionsData = oflc_chapel_schedule_db_read_custom_small_catechism_options_data();
+    $labelByOptionId = [];
+    foreach ($optionsData['options'] as $option) {
+        $labelByOptionId[(int) ($option['id'] ?? 0)] = trim((string) ($option['label'] ?? ''));
+    }
+
+    $usageData = oflc_chapel_schedule_db_read_custom_small_catechism_usage_data();
     $labelsBySchedule = [];
-    foreach ($data['usage'] as $scheduleId => $labels) {
-        if (!isset($idLookup[(string) $scheduleId]) || !is_array($labels)) {
+    foreach ($usageData['usage'] as $scheduleId => $optionIds) {
+        if (!isset($idLookup[(string) $scheduleId])) {
             continue;
         }
 
-        $cleanLabels = array_values(array_map(static function ($label): string {
-            return trim((string) $label);
-        }, $labels));
-        if ($cleanLabels !== []) {
-            $labelsBySchedule[(int) $scheduleId] = $cleanLabels;
+        foreach ($optionIds as $optionId) {
+            $label = $labelByOptionId[(int) $optionId] ?? '';
+            if ($label !== '') {
+                $labelsBySchedule[(int) $scheduleId][] = $label;
+            }
         }
     }
 
@@ -389,16 +494,26 @@ function oflc_chapel_schedule_db_replace_custom_small_catechism_labels(int $chap
         return;
     }
 
-    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
     $labels = oflc_chapel_schedule_db_clean_label_list($labels);
+    $usageData = oflc_chapel_schedule_db_read_custom_small_catechism_usage_data();
     if ($labels === []) {
-        unset($data['usage'][(string) $chapelScheduleId]);
-    } else {
-        $data['usage'][(string) $chapelScheduleId] = $labels;
-        $data['options'] = array_merge($data['options'], $labels);
+        unset($usageData['usage'][(string) $chapelScheduleId]);
+        oflc_chapel_schedule_db_write_custom_small_catechism_usage_data($usageData);
+        return;
     }
 
-    oflc_chapel_schedule_db_write_custom_small_catechism_data($data);
+    $optionsData = oflc_chapel_schedule_db_read_custom_small_catechism_options_data();
+    $optionIds = [];
+    foreach ($labels as $label) {
+        $optionId = oflc_chapel_schedule_db_find_or_create_custom_small_catechism_option_id($label, $optionsData);
+        if ($optionId > 0) {
+            $optionIds[] = $optionId;
+        }
+    }
+
+    $usageData['usage'][(string) $chapelScheduleId] = $optionIds;
+    oflc_chapel_schedule_db_write_custom_small_catechism_options_data($optionsData);
+    oflc_chapel_schedule_db_write_custom_small_catechism_usage_data($usageData);
 }
 
 function oflc_chapel_schedule_db_delete_custom_small_catechism_labels(int $chapelScheduleId): void
@@ -407,9 +522,9 @@ function oflc_chapel_schedule_db_delete_custom_small_catechism_labels(int $chape
         return;
     }
 
-    $data = oflc_chapel_schedule_db_read_custom_small_catechism_data();
-    unset($data['usage'][(string) $chapelScheduleId]);
-    oflc_chapel_schedule_db_write_custom_small_catechism_data($data);
+    $usageData = oflc_chapel_schedule_db_read_custom_small_catechism_usage_data();
+    unset($usageData['usage'][(string) $chapelScheduleId]);
+    oflc_chapel_schedule_db_write_custom_small_catechism_usage_data($usageData);
 }
 
 function oflc_chapel_schedule_db_fetch_rows(PDO $pdo, string $schoolYear = '', string $dateSort = 'asc'): array

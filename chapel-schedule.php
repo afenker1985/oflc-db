@@ -904,19 +904,16 @@ include 'includes/header.php';
     }
 
     if (form) {
-        form.addEventListener('input', function (event) {
+        var markRowDirtyFromFieldEvent = function (event) {
             var row = getRow(event.target);
             if (row && event.target.closest('.chapel-schedule-row')) {
                 setRowDirty(row, true);
             }
-        });
+        };
 
-        form.addEventListener('change', function (event) {
-            var row = getRow(event.target);
-            if (row && event.target.closest('.chapel-schedule-row')) {
-                setRowDirty(row, true);
-            }
-        });
+        form.addEventListener('input', markRowDirtyFromFieldEvent);
+        form.addEventListener('change', markRowDirtyFromFieldEvent);
+        form.addEventListener('focusout', markRowDirtyFromFieldEvent);
 
         form.addEventListener('submit', function (event) {
             var submitter = event.submitter || document.activeElement;
