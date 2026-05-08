@@ -499,6 +499,40 @@ function oflc_chapel_schedule_db_fetch_custom_small_catechism_labels_by_schedule
     return $labelsBySchedule;
 }
 
+function oflc_chapel_schedule_db_ensure_custom_small_catechism_placeholder(PDO $pdo): void
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM small_catechism_mysql WHERE id = 999');
+    $stmt->execute();
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $insertStmt = $pdo->prepare(
+        'INSERT INTO small_catechism_mysql (
+            id,
+            chief_part,
+            chief_part_id,
+            question,
+            abbreviation,
+            question_order,
+            is_active
+        ) VALUES (
+            999,
+            :chief_part,
+            999,
+            :question,
+            :abbreviation,
+            999,
+            0
+        )'
+    );
+    $insertStmt->execute([
+        ':chief_part' => 'Custom Chapel SC',
+        ':question' => 'Custom chapel Small Catechism display value',
+        ':abbreviation' => 'CUSTOM',
+    ]);
+}
+
 function oflc_chapel_schedule_db_replace_custom_small_catechism_labels(int $chapelScheduleId, array $labels): void
 {
     if ($chapelScheduleId <= 0) {
@@ -782,6 +816,10 @@ function oflc_chapel_schedule_db_replace_hymn_links(PDO $pdo, int $chapelSchedul
 
 function oflc_chapel_schedule_db_replace_small_catechism_links(PDO $pdo, int $chapelScheduleId, array $smallCatechismIds, string $today): void
 {
+    if (in_array(999, array_map('intval', $smallCatechismIds), true)) {
+        oflc_chapel_schedule_db_ensure_custom_small_catechism_placeholder($pdo);
+    }
+
     $deactivateStmt = $pdo->prepare(
         'UPDATE chapel_small_catechism_usage_db
          SET is_active = 0,
