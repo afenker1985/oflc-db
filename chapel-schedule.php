@@ -202,9 +202,6 @@ include 'includes/header.php';
     <?php foreach ($hymnCatalog['suggestions'] as $hymnSuggestion): ?>
         <option value="<?php echo htmlspecialchars((string) $hymnSuggestion, ENT_QUOTES, 'UTF-8'); ?>"></option>
     <?php endforeach; ?>
-    <?php foreach ($customSmallCatechismOptions as $customSmallCatechismOption): ?>
-        <option value="<?php echo htmlspecialchars((string) $customSmallCatechismOption, ENT_QUOTES, 'UTF-8'); ?>"></option>
-    <?php endforeach; ?>
 </datalist>
 
 <datalist id="chapel-small-catechism-options">
@@ -213,6 +210,9 @@ include 'includes/header.php';
         <?php if ($smallCatechismAbbreviation !== ''): ?>
             <option value="<?php echo htmlspecialchars($smallCatechismAbbreviation, ENT_QUOTES, 'UTF-8'); ?>"></option>
         <?php endif; ?>
+    <?php endforeach; ?>
+    <?php foreach ($customSmallCatechismOptions as $customSmallCatechismOption): ?>
+        <option value="<?php echo htmlspecialchars((string) $customSmallCatechismOption, ENT_QUOTES, 'UTF-8'); ?>"></option>
     <?php endforeach; ?>
 </datalist>
 

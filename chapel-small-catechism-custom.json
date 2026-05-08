@@ -1,15 +1,6 @@
 {
-    "usage": {
-        "23": [
-            "1C",
-            "ToD"
-        ]
-    },
+    "usage": {},
     "options": [
-        "1C",
-        "Custom Mixed SC",
-        "Custom SC 999",
-        "Temp Custom SC",
         "ToD"
     ]
 }
