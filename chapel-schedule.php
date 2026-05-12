@@ -109,7 +109,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($chapelAction === 'delete_week') {
         $chapelScheduleId = is_array($submittedRow) ? (int) ($submittedRow['id'] ?? 0) : 0;
         if ($chapelScheduleId > 0) {
+            $deletedSchoolYear = '';
+            $deletedSchoolYearStmt = $pdo->prepare('SELECT school_year FROM chapel_schedule_db WHERE id = ? AND is_active = 1');
+            $deletedSchoolYearStmt->execute([$chapelScheduleId]);
+            $deletedSchoolYear = trim((string) $deletedSchoolYearStmt->fetchColumn());
+            if ($deletedSchoolYear === '') {
+                $deletedDate = trim((string) ($submittedRow['date'] ?? ''));
+                if ($deletedDate !== '') {
+                    $deletedSchoolYear = oflc_chapel_schedule_db_format_school_year($deletedDate);
+                }
+            }
             oflc_chapel_schedule_db_delete_row($pdo, $chapelScheduleId);
+            oflc_chapel_schedule_db_renumber_school_year($pdo, $deletedSchoolYear);
             $formNotice = 'Chapel week deleted.';
         } else {
             $formErrors[] = 'Unable to delete an unsaved chapel week.';
@@ -169,6 +180,36 @@ if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOpti
     $selectedSchoolYear = '';
 }
 $chapelRows = oflc_chapel_schedule_db_fetch_rows($pdo, $selectedSchoolYear, $selectedDateSort);
+$allChapelRowsForDateLookup = oflc_chapel_schedule_db_fetch_rows($pdo, '', 'asc');
+$lastSchoolYearStartSuggestion = '';
+$lastSchoolYearEndSuggestion = '';
+$lastInputSchoolYear = '';
+foreach ($allChapelRowsForDateLookup as $chapelRowForSuggestion) {
+    $rowSchoolYear = trim((string) ($chapelRowForSuggestion['school_year'] ?? ''));
+    if ($rowSchoolYear !== '' && ($lastInputSchoolYear === '' || $rowSchoolYear > $lastInputSchoolYear)) {
+        $lastInputSchoolYear = $rowSchoolYear;
+    }
+}
+if ($lastInputSchoolYear !== '') {
+    $lastSchoolYearDates = [];
+    foreach ($allChapelRowsForDateLookup as $chapelRowForSuggestion) {
+        $rowDate = trim((string) ($chapelRowForSuggestion['date'] ?? ''));
+        if ((string) ($chapelRowForSuggestion['school_year'] ?? '') === $lastInputSchoolYear && $rowDate !== '') {
+            $lastSchoolYearDates[] = $rowDate;
+        }
+    }
+    sort($lastSchoolYearDates, SORT_STRING);
+    $firstLastSchoolYearDate = $lastSchoolYearDates[0] ?? '';
+    $finalLastSchoolYearDate = $lastSchoolYearDates[count($lastSchoolYearDates) - 1] ?? '';
+    $firstLastSchoolYearDateObject = $firstLastSchoolYearDate !== '' ? DateTimeImmutable::createFromFormat('Y-m-d', $firstLastSchoolYearDate) : null;
+    $finalLastSchoolYearDateObject = $finalLastSchoolYearDate !== '' ? DateTimeImmutable::createFromFormat('Y-m-d', $finalLastSchoolYearDate) : null;
+    if ($firstLastSchoolYearDateObject instanceof DateTimeImmutable) {
+        $lastSchoolYearStartSuggestion = $firstLastSchoolYearDateObject->modify('+1 year')->format('Y-m-d');
+    }
+    if ($finalLastSchoolYearDateObject instanceof DateTimeImmutable) {
+        $lastSchoolYearEndSuggestion = $finalLastSchoolYearDateObject->modify('+1 year')->format('Y-m-d');
+    }
+}
 $nextWeekNumber = 1;
 foreach ($chapelRows as $chapelRow) {
     $nextWeekNumber = max($nextWeekNumber, (int) ($chapelRow['week_number'] ?? 0) + 1);
@@ -184,7 +225,6 @@ $latestChapelDateObject = $latestChapelDate !== '' ? DateTimeImmutable::createFr
 $suggestedChapelDate = $latestChapelDateObject instanceof DateTimeImmutable
     ? $latestChapelDateObject->modify('+7 days')->format('Y-m-d')
     : date('Y-m-d');
-$allChapelRowsForDateLookup = oflc_chapel_schedule_db_fetch_rows($pdo, '', 'asc');
 $nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($allChapelRowsForDateLookup);
 $printChapelScheduleParams = [];
 if ($selectedSchoolYear !== '') {
@@ -225,7 +265,58 @@ include 'includes/header.php';
 
 <div class="chapel-schedule-actions">
     <button type="button" class="schedule-print-button" id="chapel-add-week-button">Add a Week</button>
+    <button type="button" class="schedule-print-button" id="chapel-add-school-year-button">Add School Year</button>
+    <button type="button" class="schedule-print-button chapel-remove-school-year-button" id="chapel-remove-school-year-button">Remove School Year</button>
+    <button type="button" class="schedule-print-button" id="chapel-save-all-button">Save All</button>
     <a href="<?php echo htmlspecialchars($printChapelScheduleUrl, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener" class="schedule-print-button" id="chapel-print-button">Print Schedule</a>
+</div>
+
+<div class="chapel-school-year-dialog" id="chapel-school-year-dialog" hidden>
+    <div class="chapel-school-year-dialog-card" role="dialog" aria-modal="true" aria-labelledby="chapel-school-year-dialog-title">
+        <h4 id="chapel-school-year-dialog-title">Add School Year</h4>
+        <div class="chapel-school-year-dialog-fields">
+            <label>
+                <span>School Year Start</span>
+                <input type="date" id="chapel-school-year-start">
+            </label>
+            <label>
+                <span>School Year End</span>
+                <input type="date" id="chapel-school-year-end">
+            </label>
+        </div>
+        <p class="chapel-school-year-dialog-error" id="chapel-school-year-dialog-error" aria-live="polite"></p>
+        <div class="chapel-school-year-dialog-actions">
+            <button type="button" class="schedule-print-button" id="chapel-school-year-create">Add Weeks</button>
+            <button type="button" class="schedule-print-button chapel-school-year-cancel" id="chapel-school-year-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div class="chapel-school-year-dialog" id="chapel-remove-school-year-dialog" hidden>
+    <div class="chapel-school-year-dialog-card" role="dialog" aria-modal="true" aria-labelledby="chapel-remove-school-year-dialog-title">
+        <h4 id="chapel-remove-school-year-dialog-title">Remove School Year</h4>
+        <div class="chapel-school-year-dialog-fields chapel-school-year-remove-fields">
+            <label>
+                <span>School Year</span>
+                <select id="chapel-remove-school-year-select">
+                    <?php foreach ($schoolYearOptions as $schoolYearOption): ?>
+                        <option value="<?php echo htmlspecialchars((string) $schoolYearOption, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $selectedSchoolYear === (string) $schoolYearOption ? ' selected' : ''; ?>>
+                            <?php echo htmlspecialchars(oflc_chapel_schedule_db_display_school_year((string) $schoolYearOption), ENT_QUOTES, 'UTF-8'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>
+                <span>Type DELETE</span>
+                <input type="text" id="chapel-remove-school-year-confirmation" autocomplete="off">
+            </label>
+        </div>
+        <p class="chapel-school-year-dialog-error" id="chapel-remove-school-year-dialog-error" aria-live="polite"></p>
+        <div class="chapel-school-year-dialog-actions">
+            <button type="button" class="schedule-print-button chapel-school-year-delete" id="chapel-remove-school-year-delete">Delete</button>
+            <button type="button" class="schedule-print-button chapel-school-year-cancel" id="chapel-remove-school-year-cancel">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <form method="get" action="chapel-schedule.php" class="chapel-school-year-filter">
@@ -249,7 +340,7 @@ include 'includes/header.php';
     </label>
 </form>
 
-<form method="post" action="chapel-schedule.php" id="chapel-schedule-form" data-next-week-number="<?php echo htmlspecialchars((string) $nextWeekNumber, ENT_QUOTES, 'UTF-8'); ?>" data-suggested-date="<?php echo htmlspecialchars($suggestedChapelDate, ENT_QUOTES, 'UTF-8'); ?>" data-date-sort="<?php echo htmlspecialchars($selectedDateSort, ENT_QUOTES, 'UTF-8'); ?>">
+<form method="post" action="chapel-schedule.php" id="chapel-schedule-form" data-next-week-number="<?php echo htmlspecialchars((string) $nextWeekNumber, ENT_QUOTES, 'UTF-8'); ?>" data-suggested-date="<?php echo htmlspecialchars($suggestedChapelDate, ENT_QUOTES, 'UTF-8'); ?>" data-school-year-start-suggestion="<?php echo htmlspecialchars($lastSchoolYearStartSuggestion, ENT_QUOTES, 'UTF-8'); ?>" data-school-year-end-suggestion="<?php echo htmlspecialchars($lastSchoolYearEndSuggestion, ENT_QUOTES, 'UTF-8'); ?>" data-date-sort="<?php echo htmlspecialchars($selectedDateSort, ENT_QUOTES, 'UTF-8'); ?>">
     <input type="hidden" name="chapel_row_key" id="chapel-row-key" value="">
     <div class="planning-table-wrap chapel-schedule-table-wrap">
         <table class="planning-table schedule-table chapel-schedule-table">
@@ -263,7 +354,7 @@ include 'includes/header.php';
             </colgroup>
             <thead>
                 <tr>
-                    <th scope="col">Wk.</th>
+                    <th scope="col">Wk</th>
                     <th scope="col">Date</th>
                     <th scope="col">Psalm</th>
                     <th scope="col">Text</th>
@@ -340,7 +431,7 @@ include 'includes/header.php';
                                 <span class="chapel-save-status" aria-live="polite"></span>
                                 <div class="chapel-delete-confirm" hidden>
                                     <div>Delete this week?</div>
-                                    <button type="submit" class="chapel-delete-confirm-yes chapel-row-submit" name="chapel_action" value="delete_week">Yes</button>
+                                    <button type="button" class="chapel-delete-confirm-yes chapel-row-submit" name="chapel_action" value="delete_week">Yes</button>
                                     <button type="button" class="chapel-delete-confirm-no">No</button>
                                 </div>
                             </div>
@@ -357,6 +448,21 @@ include 'includes/header.php';
     var form = document.getElementById('chapel-schedule-form');
     var tableBody = document.getElementById('chapel-schedule-body');
     var addWeekButton = document.getElementById('chapel-add-week-button');
+    var addSchoolYearButton = document.getElementById('chapel-add-school-year-button');
+    var removeSchoolYearButton = document.getElementById('chapel-remove-school-year-button');
+    var saveAllButton = document.getElementById('chapel-save-all-button');
+    var schoolYearDialog = document.getElementById('chapel-school-year-dialog');
+    var schoolYearStartInput = document.getElementById('chapel-school-year-start');
+    var schoolYearEndInput = document.getElementById('chapel-school-year-end');
+    var schoolYearCreateButton = document.getElementById('chapel-school-year-create');
+    var schoolYearCancelButton = document.getElementById('chapel-school-year-cancel');
+    var schoolYearDialogError = document.getElementById('chapel-school-year-dialog-error');
+    var removeSchoolYearDialog = document.getElementById('chapel-remove-school-year-dialog');
+    var removeSchoolYearSelect = document.getElementById('chapel-remove-school-year-select');
+    var removeSchoolYearConfirmation = document.getElementById('chapel-remove-school-year-confirmation');
+    var removeSchoolYearDeleteButton = document.getElementById('chapel-remove-school-year-delete');
+    var removeSchoolYearCancelButton = document.getElementById('chapel-remove-school-year-cancel');
+    var removeSchoolYearDialogError = document.getElementById('chapel-remove-school-year-dialog-error');
     var rowKeyInput = document.getElementById('chapel-row-key');
     var suggestionCache = {};
     var nextUnsavedId = 1;
@@ -387,6 +493,221 @@ include 'includes/header.php';
             String(dateObject.getMonth() + 1).padStart(2, '0'),
             String(dateObject.getDate()).padStart(2, '0')
         ].join('-');
+    }
+
+    function addYearsToDate(date, years) {
+        var parts = String(date || '').split('-');
+        var dateObject;
+
+        if (parts.length !== 3) {
+            return '';
+        }
+
+        dateObject = new Date(parseInt(parts[0], 10) + years, parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        if (Number.isNaN(dateObject.getTime())) {
+            return '';
+        }
+
+        return formatDateObject(dateObject);
+    }
+
+    function getDateObject(date) {
+        var parts = String(date || '').split('-');
+        var year;
+        var month;
+        var day;
+        var dateObject;
+
+        if (parts.length !== 3) {
+            return null;
+        }
+
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+            return null;
+        }
+
+        dateObject = new Date(year, month - 1, day);
+        if (dateObject.getFullYear() !== year || dateObject.getMonth() !== month - 1 || dateObject.getDate() !== day) {
+            return null;
+        }
+
+        return dateObject;
+    }
+
+    function formatDateObject(dateObject) {
+        return [
+            String(dateObject.getFullYear()).padStart(4, '0'),
+            String(dateObject.getMonth() + 1).padStart(2, '0'),
+            String(dateObject.getDate()).padStart(2, '0')
+        ].join('-');
+    }
+
+    function getWeekStartDate(date) {
+        var dateObject = getDateObject(date);
+        if (!dateObject) {
+            return '';
+        }
+
+        dateObject.setDate(dateObject.getDate() - dateObject.getDay());
+        return formatDateObject(dateObject);
+    }
+
+    function getThanksgivingDate(year) {
+        var dateObject = new Date(year, 10, 1);
+        var firstThursdayOffset = (4 - dateObject.getDay() + 7) % 7;
+        dateObject.setDate(1 + firstThursdayOffset + (3 * 7));
+
+        return formatDateObject(dateObject);
+    }
+
+    function isSkippedSchoolYearWeek(date) {
+        var dateObject = getDateObject(date);
+        var weekStart;
+        var thanksgivingWeekStart;
+        var christmasWeekStart;
+        var newYearsWeekStarts;
+
+        if (!dateObject) {
+            return false;
+        }
+
+        weekStart = getWeekStartDate(date);
+        thanksgivingWeekStart = getWeekStartDate(getThanksgivingDate(dateObject.getFullYear()));
+        christmasWeekStart = getWeekStartDate(dateObject.getFullYear() + '-12-25');
+        newYearsWeekStarts = [
+            getWeekStartDate((dateObject.getFullYear() - 1) + '-01-01'),
+            getWeekStartDate(dateObject.getFullYear() + '-01-01'),
+            getWeekStartDate((dateObject.getFullYear() + 1) + '-01-01')
+        ];
+
+        return weekStart === thanksgivingWeekStart
+            || weekStart === christmasWeekStart
+            || newYearsWeekStarts.indexOf(weekStart) !== -1;
+    }
+
+    function isValidDateString(date) {
+        var parts = String(date || '').split('-');
+        var dateObject;
+        var year;
+        var month;
+        var day;
+
+        if (parts.length !== 3) {
+            return false;
+        }
+
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+            return false;
+        }
+
+        dateObject = new Date(year, month - 1, day);
+        return dateObject.getFullYear() === year
+            && dateObject.getMonth() === month - 1
+            && dateObject.getDate() === day;
+    }
+
+    function getSchoolYearForDate(date) {
+        var parts = String(date || '').split('-');
+        var year;
+        var month;
+        var startYear;
+
+        if (parts.length !== 3) {
+            return '';
+        }
+
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        if (!Number.isFinite(year) || !Number.isFinite(month)) {
+            return '';
+        }
+
+        startYear = month >= 8 ? year : year - 1;
+        return String(startYear % 100).padStart(2, '0') + '-' + String((startYear + 1) % 100).padStart(2, '0');
+    }
+
+    function formatSchoolYearForDisplay(schoolYear) {
+        var parts = String(schoolYear || '').split('-');
+        if (parts.length !== 2) {
+            return schoolYear || '';
+        }
+
+        return '20' + parts[0] + '/20' + parts[1];
+    }
+
+    function sortSchoolYearSelect(select) {
+        var options = Array.prototype.slice.call(select.querySelectorAll('option[value]'));
+        var allOption = select.querySelector('option[value=""]');
+
+        options = options.filter(function (option) {
+            return option.value !== '';
+        });
+        options.sort(function (left, right) {
+            return right.value.localeCompare(left.value);
+        });
+
+        select.innerHTML = '';
+        if (allOption) {
+            select.appendChild(allOption);
+        }
+        options.forEach(function (option) {
+            select.appendChild(option);
+        });
+    }
+
+    function addSchoolYearToDropdowns(schoolYear) {
+        if (!schoolYear) {
+            return;
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('select[name="school_year"], #chapel-remove-school-year-select'), function (select) {
+            var option;
+            if (select.querySelector('option[value="' + schoolYear + '"]')) {
+                return;
+            }
+
+            option = document.createElement('option');
+            option.value = schoolYear;
+            option.textContent = formatSchoolYearForDisplay(schoolYear);
+            select.appendChild(option);
+            sortSchoolYearSelect(select);
+        });
+    }
+
+    function updateSchoolYearSuggestionAttrs(startDate, endDate) {
+        if (!form) {
+            return;
+        }
+
+        form.setAttribute('data-school-year-start-suggestion', startDate || '');
+        form.setAttribute('data-school-year-end-suggestion', endDate || '');
+    }
+
+    function updateNextSchoolYearSuggestionFromRows(rows) {
+        var dates = [];
+        Array.prototype.forEach.call(rows || [], function (row) {
+            var dateInput = getNamedRowField(row, 'date');
+            var value = dateInput ? String(dateInput.value || '').trim() : '';
+            if (value !== '') {
+                dates.push(value);
+            }
+        });
+
+        dates.sort();
+        if (dates.length === 0) {
+            return;
+        }
+
+        updateSchoolYearSuggestionAttrs(
+            addYearsToDate(dates[0], 1),
+            addYearsToDate(dates[dates.length - 1], 1)
+        );
     }
 
     function getLatestChapelDate() {
@@ -461,10 +782,6 @@ include 'includes/header.php';
             return false;
         }
 
-        if (dateObject.getDay() !== 3) {
-            return false;
-        }
-
         nextWeek = new Date(year, month - 1, day + 7);
         var nextScheduledDate = getNextScheduledChapelDate(date);
         if (nextScheduledDate !== '') {
@@ -492,6 +809,51 @@ include 'includes/header.php';
 
     function updateAllBaptismalRemembrances() {
         Array.prototype.forEach.call(document.querySelectorAll('.chapel-schedule-row'), updateBaptismalRemembrance);
+    }
+
+    function renumberVisibleWeeks(markSavedDirty) {
+        var rowsBySchoolYear = {};
+        var changedRows = [];
+
+        markSavedDirty = markSavedDirty !== false;
+
+        Array.prototype.forEach.call(tableBody ? tableBody.querySelectorAll('tr.chapel-schedule-row') : [], function (row) {
+            var dateInput = getNamedRowField(row, 'date');
+            var schoolYear = getSchoolYearForDate(dateInput ? dateInput.value : '');
+            if (schoolYear === '') {
+                return;
+            }
+
+            if (!rowsBySchoolYear[schoolYear]) {
+                rowsBySchoolYear[schoolYear] = [];
+            }
+            rowsBySchoolYear[schoolYear].push(row);
+        });
+
+        Object.keys(rowsBySchoolYear).forEach(function (schoolYear) {
+            rowsBySchoolYear[schoolYear].sort(function (left, right) {
+                var leftDateInput = getNamedRowField(left, 'date');
+                var rightDateInput = getNamedRowField(right, 'date');
+                var leftDate = leftDateInput ? leftDateInput.value : '';
+                var rightDate = rightDateInput ? rightDateInput.value : '';
+
+                return leftDate.localeCompare(rightDate);
+            });
+
+            rowsBySchoolYear[schoolYear].forEach(function (row, index) {
+                var weekInput = getNamedRowField(row, 'week_number');
+                var nextWeekNumber = String(index + 1);
+                if (weekInput && weekInput.value !== nextWeekNumber) {
+                    weekInput.value = nextWeekNumber;
+                    changedRows.push(row);
+                    if (markSavedDirty && row.getAttribute('data-is-saved') === '1') {
+                        setRowDirty(row, true);
+                    }
+                }
+            });
+        });
+
+        return changedRows;
     }
 
     function updateDateDerivedDisplays(row) {
@@ -572,11 +934,13 @@ include 'includes/header.php';
     }
 
     function saveWeekRow(row) {
-        var idInput = getNamedRowField(row, 'id');
+        var idInput;
 
         if (!row || row.classList.contains('is-saving')) {
-            return;
+            return Promise.resolve(null);
         }
+
+        idInput = getNamedRowField(row, 'id');
 
         if (document.activeElement && row.contains(document.activeElement) && typeof document.activeElement.blur === 'function') {
             document.activeElement.blur();
@@ -585,7 +949,7 @@ include 'includes/header.php';
         setRowSaving(row, true);
         setRowSaveStatus(row, '', false);
 
-        fetch('ajax/save_chapel_week.php', {
+        return fetch('ajax/save_chapel_week.php', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json'
@@ -615,7 +979,7 @@ include 'includes/header.php';
                     confirmMessage.textContent = 'Delete this week?';
                 }
                 if (confirmYes) {
-                    confirmYes.type = 'submit';
+                    confirmYes.type = 'button';
                 }
                 setRowDirty(row, false);
                 setRowSaveStatus(row, 'Saved', false);
@@ -624,13 +988,135 @@ include 'includes/header.php';
                         setRowSaveStatus(row, '', false);
                     }
                 }, 1800);
+
+                return payload;
             })
             .catch(function (error) {
                 setRowSaveStatus(row, error.message || 'Unable to save.', true);
                 setRowDirty(row, true);
+                return {
+                    success: false,
+                    message: error.message || 'Unable to save.'
+                };
             })
             .finally(function () {
                 row.classList.remove('is-saving');
+            });
+    }
+
+    function getRowsToSave(rows) {
+        var sourceRows = rows || (tableBody ? tableBody.querySelectorAll('tr.chapel-schedule-row.is-dirty') : []);
+
+        return Array.prototype.filter.call(sourceRows, function (row) {
+            return row && !row.classList.contains('is-saving');
+        });
+    }
+
+    function saveRowsSequentially(rows) {
+        return getRowsToSave(rows).reduce(function (promise, row) {
+            return promise.then(function (results) {
+                return saveWeekRow(row).then(function (result) {
+                    results.push(result);
+                    return results;
+                });
+            });
+        }, Promise.resolve([]));
+    }
+
+    function setSaveAllSaving(isSaving) {
+        if (!saveAllButton) {
+            return;
+        }
+
+        saveAllButton.disabled = !!isSaving;
+        saveAllButton.textContent = isSaving ? 'Saving All...' : 'Save All';
+    }
+
+    function saveAllRows() {
+        var rows = getRowsToSave();
+
+        if (rows.length === 0) {
+            return Promise.resolve([]);
+        }
+
+        setSaveAllSaving(true);
+        return saveRowsSequentially(rows).finally(function () {
+            setSaveAllSaving(false);
+        });
+    }
+
+    function populateRowDefaultObservance(row) {
+        var dateInput = getDateInput(row);
+        var observanceInput = row ? row.querySelector('.chapel-observance-input') : null;
+        var psalmInput = row ? row.querySelector('.chapel-schedule-psalm-input') : null;
+        var date = dateInput ? String(dateInput.value || '').trim() : '';
+
+        if (!date || !observanceInput) {
+            return Promise.resolve();
+        }
+
+        return fetchSuggestions(date).then(function (payload) {
+            var suggestion = payload.suggestions[0] || '';
+            if (suggestion === '') {
+                return;
+            }
+
+            observanceInput.value = suggestion;
+            if (psalmInput && payload.psalms_by_suggestion[suggestion]) {
+                psalmInput.value = payload.psalms_by_suggestion[suggestion];
+            }
+            setRowDirty(row, true);
+        });
+    }
+
+    function populateRowsDefaultObservances(rows) {
+        return Promise.all(Array.prototype.map.call(rows, populateRowDefaultObservance));
+    }
+
+    function deleteSavedWeekRow(row) {
+        var idInput = getNamedRowField(row, 'id');
+        var data = new FormData();
+
+        if (!row || row.classList.contains('is-deleting')) {
+            return Promise.resolve(null);
+        }
+
+        if (!idInput || parseInt(idInput.value || '0', 10) <= 0) {
+            return Promise.reject(new Error('Unable to delete an unsaved chapel week.'));
+        }
+
+        data.append('id', idInput.value);
+        row.classList.add('is-deleting');
+        setRowSaveStatus(row, 'Deleting...', false);
+
+        return fetch('ajax/delete_chapel_week.php', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json'
+            },
+            body: data
+        })
+            .then(function (response) {
+                return response.json().catch(function () {
+                    return { success: false, message: 'Unable to delete chapel week.' };
+                }).then(function (payload) {
+                    if (!response.ok || !payload.success) {
+                        throw new Error(payload.message || 'Unable to delete chapel week.');
+                    }
+
+                    return payload;
+                });
+            })
+            .then(function (payload) {
+                row.remove();
+                renumberVisibleWeeks(false);
+                updateAllBaptismalRemembrances();
+                return payload;
+            })
+            .catch(function (error) {
+                row.classList.remove('is-deleting');
+                setRowSaveStatus(row, error.message || 'Unable to delete.', true);
+                throw error;
             });
     }
 
@@ -764,7 +1250,7 @@ include 'includes/header.php';
         confirm.className = 'chapel-delete-confirm';
         confirm.hidden = true;
         message.textContent = isSaved ? 'Delete this week?' : 'Remove this unsaved week?';
-        yesButton.type = isSaved ? 'submit' : 'button';
+        yesButton.type = 'button';
         yesButton.className = 'chapel-delete-confirm-yes chapel-row-submit';
         yesButton.name = 'chapel_action';
         yesButton.value = 'delete_week';
@@ -788,30 +1274,26 @@ include 'includes/header.php';
         cell.appendChild(actions);
     }
 
-    function addWeekRow() {
-        var row;
-        var rowKey;
-        var weekNumber;
-        var suggestedDate;
-        var cell;
-
-        if (!form || !tableBody) {
+    function insertWeekRow(row) {
+        if (!tableBody) {
             return;
         }
 
-        rowKey = 'new_' + Date.now() + '_' + nextUnsavedId;
-        nextUnsavedId += 1;
-        weekNumber = getNextWeekNumber();
-        form.setAttribute('data-next-week-number', String(weekNumber + 1));
-        suggestedDate = getSuggestedDateForNewRow();
+        if ((form.getAttribute('data-date-sort') || 'asc') === 'desc') {
+            tableBody.insertBefore(row, tableBody.firstChild);
+        } else {
+            tableBody.appendChild(row);
+        }
+    }
+
+    function createWeekRow(rowKey, weekNumber, suggestedDate, isDirty) {
+        var row;
+        var cell;
 
         row = document.createElement('tr');
         row.className = 'service-card-color-dark chapel-schedule-row';
         row.setAttribute('data-row-key', rowKey);
         row.setAttribute('data-is-saved', '0');
-        if (suggestedDate !== '') {
-            form.setAttribute('data-suggested-date', addDaysToDate(suggestedDate, 7) || suggestedDate);
-        }
 
         cell = createCell(row);
         appendHiddenInput(cell, rowKey, 'id', '');
@@ -829,12 +1311,285 @@ include 'includes/header.php';
         appendSmallCatechismInputs(cell, rowKey);
         appendActions(cell, rowKey, false);
 
-        if ((form.getAttribute('data-date-sort') || 'asc') === 'desc') {
-            tableBody.insertBefore(row, tableBody.firstChild);
-        } else {
-            tableBody.appendChild(row);
+        if (isDirty) {
+            setRowDirty(row, true);
         }
+
+        return row;
+    }
+
+    function addWeekRow() {
+        var rowKey;
+        var weekNumber;
+        var suggestedDate;
+        var row;
+
+        if (!form || !tableBody) {
+            return;
+        }
+
+        rowKey = 'new_' + Date.now() + '_' + nextUnsavedId;
+        nextUnsavedId += 1;
+        weekNumber = getNextWeekNumber();
+        form.setAttribute('data-next-week-number', String(weekNumber + 1));
+        suggestedDate = getSuggestedDateForNewRow();
+        if (suggestedDate !== '') {
+            form.setAttribute('data-suggested-date', addDaysToDate(suggestedDate, 7) || suggestedDate);
+        }
+
+        row = createWeekRow(rowKey, weekNumber, suggestedDate, false);
+        insertWeekRow(row);
         updateAllBaptismalRemembrances();
+    }
+
+    function addSchoolYearRowsFromDates(startDate, endDate) {
+        var currentDate;
+        var weekNumber = 1;
+        var rowsAdded = [];
+
+        if (!form || !tableBody) {
+            return [];
+        }
+
+        currentDate = startDate;
+        while (currentDate <= endDate && rowsAdded.length < 60) {
+            if (!isSkippedSchoolYearWeek(currentDate)) {
+                var rowKey = 'new_year_' + Date.now() + '_' + nextUnsavedId;
+                var row;
+                nextUnsavedId += 1;
+                row = createWeekRow(rowKey, weekNumber, currentDate, true);
+                insertWeekRow(row);
+                rowsAdded.push(row);
+                weekNumber += 1;
+            }
+            currentDate = addDaysToDate(currentDate, 7);
+        }
+
+        if (rowsAdded.length >= 60 && currentDate <= endDate) {
+            window.alert('Only the first 60 weeks were added. Please check the start and end dates.');
+        }
+
+        if (rowsAdded.length > 0) {
+            form.setAttribute('data-next-week-number', String(weekNumber));
+            form.setAttribute('data-suggested-date', currentDate);
+            updateAllBaptismalRemembrances();
+        }
+
+        return rowsAdded;
+    }
+
+    function setSchoolYearDialogError(message) {
+        if (schoolYearDialogError) {
+            schoolYearDialogError.textContent = message || '';
+        }
+    }
+
+    function setRemoveSchoolYearDialogError(message) {
+        if (removeSchoolYearDialogError) {
+            removeSchoolYearDialogError.textContent = message || '';
+        }
+    }
+
+    function getSuggestedSchoolYearStart() {
+        var suggestedStart = form ? form.getAttribute('data-school-year-start-suggestion') || '' : '';
+        if (suggestedStart === '' && form) {
+            suggestedStart = form.getAttribute('data-suggested-date') || '';
+        }
+
+        return suggestedStart;
+    }
+
+    function getSuggestedSchoolYearEnd(startDate) {
+        var suggestedEnd = form ? form.getAttribute('data-school-year-end-suggestion') || '' : '';
+        if (suggestedEnd === '' && startDate !== '') {
+            suggestedEnd = addDaysToDate(startDate, 35 * 7);
+        }
+
+        return suggestedEnd;
+    }
+
+    function openSchoolYearDialog() {
+        var suggestedStart = getSuggestedSchoolYearStart();
+        var suggestedEnd = getSuggestedSchoolYearEnd(suggestedStart);
+
+        if (!schoolYearDialog) {
+            return;
+        }
+
+        setSchoolYearDialogError('');
+        if (schoolYearStartInput) {
+            schoolYearStartInput.value = suggestedStart;
+        }
+        if (schoolYearEndInput) {
+            schoolYearEndInput.value = suggestedEnd;
+        }
+        schoolYearDialog.hidden = false;
+        if (schoolYearStartInput) {
+            schoolYearStartInput.focus();
+            if (typeof schoolYearStartInput.showPicker === 'function') {
+                try {
+                    schoolYearStartInput.showPicker();
+                } catch (error) {
+                    // Some browsers only allow showPicker from direct user gestures.
+                }
+            }
+        }
+    }
+
+    function closeSchoolYearDialog() {
+        if (schoolYearDialog) {
+            schoolYearDialog.hidden = true;
+        }
+        setSchoolYearDialogError('');
+    }
+
+    function openRemoveSchoolYearDialog() {
+        if (!removeSchoolYearDialog) {
+            return;
+        }
+
+        setRemoveSchoolYearDialogError('');
+        if (removeSchoolYearConfirmation) {
+            removeSchoolYearConfirmation.value = '';
+        }
+        removeSchoolYearDialog.hidden = false;
+        if (removeSchoolYearSelect) {
+            removeSchoolYearSelect.focus();
+        }
+    }
+
+    function closeRemoveSchoolYearDialog() {
+        if (removeSchoolYearDialog) {
+            removeSchoolYearDialog.hidden = true;
+        }
+        setRemoveSchoolYearDialogError('');
+        if (removeSchoolYearConfirmation) {
+            removeSchoolYearConfirmation.value = '';
+        }
+    }
+
+    function removeRowsForSchoolYear(schoolYear) {
+        Array.prototype.forEach.call(tableBody ? tableBody.querySelectorAll('tr.chapel-schedule-row') : [], function (row) {
+            var dateInput = getNamedRowField(row, 'date');
+            if (getSchoolYearForDate(dateInput ? dateInput.value : '') === schoolYear) {
+                row.remove();
+            }
+        });
+        updateAllBaptismalRemembrances();
+    }
+
+    function removeSchoolYearFromDropdowns(schoolYear) {
+        Array.prototype.forEach.call(document.querySelectorAll('select[name="school_year"], #chapel-remove-school-year-select'), function (select) {
+            var option = select.querySelector('option[value="' + schoolYear + '"]');
+            if (option) {
+                option.remove();
+            }
+        });
+    }
+
+    function deleteSchoolYear(event) {
+        var schoolYear = removeSchoolYearSelect ? String(removeSchoolYearSelect.value || '').trim() : '';
+        var confirmation = removeSchoolYearConfirmation ? String(removeSchoolYearConfirmation.value || '').trim() : '';
+        var data = new FormData();
+
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        if (schoolYear === '') {
+            setRemoveSchoolYearDialogError('Choose a school year to remove.');
+            return;
+        }
+
+        if (confirmation !== 'DELETE') {
+            setRemoveSchoolYearDialogError('Type DELETE to remove ' + formatSchoolYearForDisplay(schoolYear) + '.');
+            return;
+        }
+
+        data.append('school_year', schoolYear);
+        data.append('confirmation', confirmation);
+
+        if (removeSchoolYearDeleteButton) {
+            removeSchoolYearDeleteButton.disabled = true;
+            removeSchoolYearDeleteButton.textContent = 'Deleting...';
+        }
+        setRemoveSchoolYearDialogError('');
+
+        fetch('ajax/delete_chapel_school_year.php', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json'
+            },
+            body: data
+        })
+            .then(function (response) {
+                return response.json().catch(function () {
+                    return { success: false, message: 'Unable to remove school year.' };
+                }).then(function (payload) {
+                    if (!response.ok || !payload.success) {
+                        throw new Error(payload.message || 'Unable to remove school year.');
+                    }
+
+                    return payload;
+                });
+            })
+            .then(function (payload) {
+                removeRowsForSchoolYear(schoolYear);
+                removeSchoolYearFromDropdowns(schoolYear);
+                updateSchoolYearSuggestionAttrs(payload.next_start_suggestion || '', payload.next_end_suggestion || '');
+                closeRemoveSchoolYearDialog();
+            })
+            .catch(function (error) {
+                setRemoveSchoolYearDialogError(error.message || 'Unable to remove school year.');
+            })
+            .finally(function () {
+                if (removeSchoolYearDeleteButton) {
+                    removeSchoolYearDeleteButton.disabled = false;
+                    removeSchoolYearDeleteButton.textContent = 'Delete';
+                }
+            });
+    }
+
+    function submitSchoolYearDialog(event) {
+        var startDate = schoolYearStartInput ? String(schoolYearStartInput.value || '').trim() : '';
+        var endDate = schoolYearEndInput ? String(schoolYearEndInput.value || '').trim() : '';
+        var addedSchoolYear;
+        var addedRows;
+
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        if (!isValidDateString(startDate) || !isValidDateString(endDate)) {
+            setSchoolYearDialogError('Please choose both dates.');
+            return;
+        }
+
+        if (endDate < startDate) {
+            setSchoolYearDialogError('School Year End must be after School Year Start.');
+            return;
+        }
+
+        addedRows = addSchoolYearRowsFromDates(startDate, endDate);
+        if (addedRows.length <= 0) {
+            setSchoolYearDialogError('No weeks were added. Please check the start and end dates.');
+            return;
+        }
+
+        addedSchoolYear = getSchoolYearForDate(startDate);
+        addSchoolYearToDropdowns(addedSchoolYear);
+        updateNextSchoolYearSuggestionFromRows(addedRows);
+        closeSchoolYearDialog();
+        setSaveAllSaving(true);
+        populateRowsDefaultObservances(addedRows)
+            .then(function () {
+                return saveRowsSequentially(addedRows);
+            })
+            .finally(function () {
+                setSaveAllSaving(false);
+            });
     }
 
     function hideList(list) {
@@ -938,6 +1693,57 @@ include 'includes/header.php';
         addWeekButton.addEventListener('click', addWeekRow);
     }
 
+    if (addSchoolYearButton) {
+        addSchoolYearButton.addEventListener('click', openSchoolYearDialog);
+    }
+
+    if (removeSchoolYearButton) {
+        removeSchoolYearButton.addEventListener('click', openRemoveSchoolYearDialog);
+    }
+
+    if (saveAllButton) {
+        saveAllButton.addEventListener('click', saveAllRows);
+    }
+
+    if (schoolYearCreateButton) {
+        schoolYearCreateButton.addEventListener('click', submitSchoolYearDialog);
+    }
+
+    if (schoolYearCancelButton) {
+        schoolYearCancelButton.addEventListener('click', closeSchoolYearDialog);
+    }
+
+    if (removeSchoolYearDeleteButton) {
+        removeSchoolYearDeleteButton.addEventListener('click', deleteSchoolYear);
+    }
+
+    if (removeSchoolYearCancelButton) {
+        removeSchoolYearCancelButton.addEventListener('click', closeRemoveSchoolYearDialog);
+    }
+
+    if (removeSchoolYearConfirmation) {
+        removeSchoolYearConfirmation.addEventListener('input', function () {
+            setRemoveSchoolYearDialogError('');
+        });
+    }
+
+    if (schoolYearStartInput) {
+        schoolYearStartInput.addEventListener('change', function () {
+            if (schoolYearEndInput && schoolYearEndInput.value === '') {
+                schoolYearEndInput.value = getSuggestedSchoolYearEnd(schoolYearStartInput.value);
+            }
+            setSchoolYearDialogError('');
+            schoolYearStartInput.blur();
+        });
+    }
+
+    if (schoolYearEndInput) {
+        schoolYearEndInput.addEventListener('change', function () {
+            setSchoolYearDialogError('');
+            schoolYearEndInput.blur();
+        });
+    }
+
     if (form) {
         var markRowDirtyFromFieldEvent = function (event) {
             var row = getRow(event.target);
@@ -983,6 +1789,15 @@ include 'includes/header.php';
 
     document.addEventListener('mousedown', handleSaveButtonPress, true);
 
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && schoolYearDialog && !schoolYearDialog.hidden) {
+            closeSchoolYearDialog();
+        }
+        if (event.key === 'Escape' && removeSchoolYearDialog && !removeSchoolYearDialog.hidden) {
+            closeRemoveSchoolYearDialog();
+        }
+    });
+
     document.addEventListener('click', function (event) {
         var saveButton = event.target.closest('.chapel-week-save-button');
         var deleteButton = event.target.closest('.chapel-week-delete-button');
@@ -1019,15 +1834,33 @@ include 'includes/header.php';
 
         if (event.target.closest('.chapel-delete-confirm-yes')) {
             row = getRow(event.target);
+            event.preventDefault();
             if (row && row.getAttribute('data-is-saved') !== '1') {
-                event.preventDefault();
+                var changedRows;
                 row.remove();
+                changedRows = renumberVisibleWeeks(true);
+                updateAllBaptismalRemembrances();
+                saveRowsSequentially(changedRows);
+            } else if (row) {
+                deleteSavedWeekRow(row).catch(function () {
+                    // The row status already shows the delete error.
+                });
             }
             return;
         }
 
         if (event.target && event.target.classList.contains('chapel-observance-input')) {
             showSuggestions(event.target);
+            return;
+        }
+
+        if (schoolYearDialog && event.target === schoolYearDialog) {
+            closeSchoolYearDialog();
+            return;
+        }
+
+        if (removeSchoolYearDialog && event.target === removeSchoolYearDialog) {
+            closeRemoveSchoolYearDialog();
             return;
         }
 

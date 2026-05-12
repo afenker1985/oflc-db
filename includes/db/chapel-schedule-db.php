@@ -83,10 +83,6 @@ function oflc_chapel_schedule_db_is_baptismal_remembrance_date(string $date, str
         return false;
     }
 
-    if ($dateObject->format('w') !== '3') {
-        return false;
-    }
-
     $nextChapelDate = trim($nextChapelDate);
     if ($nextChapelDate !== '') {
         $nextDateObject = DateTimeImmutable::createFromFormat('Y-m-d', $nextChapelDate);
@@ -149,6 +145,31 @@ function oflc_chapel_schedule_db_get_psalm_for_logic_key(PDO $pdo, string $logic
     return '';
 }
 
+function oflc_chapel_schedule_db_humanize_logic_key(string $logicKey): string
+{
+    $label = str_replace('_', ' ', $logicKey);
+    $label = ucwords($label);
+    $label = str_replace([' And ', ' Of ', ' Our ', ' The '], [' and ', ' of ', ' our ', ' the '], $label);
+
+    return $label;
+}
+
+function oflc_chapel_schedule_db_week_contains_month_day(DateTimeImmutable $dateObject, int $month, int $day): bool
+{
+    $weekStart = oflc_get_sunday($dateObject);
+    $weekEnd = $weekStart->modify('+6 days');
+    $year = (int) $dateObject->format('Y');
+
+    foreach ([$year - 1, $year, $year + 1] as $candidateYear) {
+        $candidateDate = DateTimeImmutable::createFromFormat('!Y-n-j', $candidateYear . '-' . $month . '-' . $day);
+        if ($candidateDate instanceof DateTimeImmutable && $candidateDate >= $weekStart && $candidateDate <= $weekEnd) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function oflc_chapel_schedule_db_add_observance_suggestion(
     PDO $pdo,
     array &$suggestions,
@@ -156,8 +177,12 @@ function oflc_chapel_schedule_db_add_observance_suggestion(
     string $label,
     string $logicKey
 ): void {
-    $label = trim($label);
     $logicKey = trim($logicKey);
+    $label = trim($label);
+    if ($label === '' && $logicKey !== '') {
+        $label = oflc_chapel_schedule_db_humanize_logic_key($logicKey);
+    }
+
     if ($label === '' || $logicKey === '' || in_array($label, $suggestions, true)) {
         return;
     }
@@ -187,17 +212,30 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
     }
 
     $previousSunday = oflc_get_sunday($dateObject);
+    $previousSundayWeek = oflc_get_one_year_week($previousSunday);
     $logicKeys = [];
-    $sundayLogicKeys = oflc_resolve_movable_logic_keys(oflc_get_one_year_week($previousSunday), 0);
+    $primaryLogicKeys = [];
+    if (oflc_chapel_schedule_db_week_contains_month_day($dateObject, 1, 6)) {
+        foreach (oflc_resolve_fixed_logic_keys(1, 6) as $logicKey) {
+            $primaryLogicKeys[] = $logicKey;
+        }
+    }
+    foreach (oflc_resolve_movable_logic_keys($previousSundayWeek, 3) as $logicKey) {
+        if (in_array($logicKey, ['ash_wednesday', 'easter_wednesday'], true)) {
+            $primaryLogicKeys[] = $logicKey;
+        }
+    }
+
+    $sundayLogicKeys = oflc_resolve_movable_logic_keys($previousSundayWeek, 0);
+    foreach ($primaryLogicKeys as $logicKey) {
+        $logicKeys[] = $logicKey;
+    }
     foreach ($sundayLogicKeys as $logicKey) {
         $logicKeys[] = $logicKey;
     }
 
     $window = oflc_get_liturgical_window($date, 7, 7);
     foreach ($window['entries'] ?? [] as $entry) {
-        foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
-            $logicKeys[] = $logicKey;
-        }
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
             $logicKeys[] = $logicKey;
         }
@@ -206,8 +244,18 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
     $logicKeyNameMap = oflc_service_db_fetch_logic_key_name_map($pdo, $logicKeys);
     $suggestions = [];
     $psalmsBySuggestion = [];
+    $fixedEntries = [];
+
+    foreach ($primaryLogicKeys as $logicKey) {
+        $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
+        oflc_chapel_schedule_db_add_observance_suggestion($pdo, $suggestions, $psalmsBySuggestion, $name, $logicKey);
+    }
 
     foreach ($sundayLogicKeys as $logicKey) {
+        if (in_array($logicKey, $primaryLogicKeys, true)) {
+            continue;
+        }
+
         $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
         oflc_chapel_schedule_db_add_observance_suggestion($pdo, $suggestions, $psalmsBySuggestion, $name, $logicKey);
     }
@@ -215,39 +263,41 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
     foreach ($window['entries'] ?? [] as $entry) {
         $entryDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($entry['date'] ?? ''));
         $dateLabel = $entryDate instanceof DateTimeImmutable ? $entryDate->format('D m/d') : (string) ($entry['date'] ?? '');
-        foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
-            if (in_array($logicKey, $sundayLogicKeys, true)) {
-                continue;
-            }
-
-            $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-
-            oflc_chapel_schedule_db_add_observance_suggestion(
-                $pdo,
-                $suggestions,
-                $psalmsBySuggestion,
-                $name . ' (' . $dateLabel . ')',
-                $logicKey
-            );
-        }
-
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
-            $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
-            if ($name === '') {
+            if (in_array($logicKey, $primaryLogicKeys, true)) {
                 continue;
             }
 
-            oflc_chapel_schedule_db_add_observance_suggestion(
-                $pdo,
-                $suggestions,
-                $psalmsBySuggestion,
-                $name . ' (' . $dateLabel . ')',
-                $logicKey
-            );
+            $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
+            if ($name === '') {
+                $name = oflc_chapel_schedule_db_humanize_logic_key($logicKey);
+            }
+            $fixedEntries[] = [
+                'date' => (string) ($entry['date'] ?? ''),
+                'label' => $name . ' (' . $dateLabel . ')',
+                'logic_key' => $logicKey,
+            ];
         }
+    }
+
+    $entrySort = static function (array $first, array $second): int {
+        $dateCompare = strcmp((string) ($first['date'] ?? ''), (string) ($second['date'] ?? ''));
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+
+        return strcmp((string) ($first['label'] ?? ''), (string) ($second['label'] ?? ''));
+    };
+    usort($fixedEntries, $entrySort);
+
+    foreach ($fixedEntries as $entry) {
+        oflc_chapel_schedule_db_add_observance_suggestion(
+            $pdo,
+            $suggestions,
+            $psalmsBySuggestion,
+            (string) ($entry['label'] ?? ''),
+            (string) ($entry['logic_key'] ?? '')
+        );
     }
 
     return [
@@ -884,4 +934,70 @@ function oflc_chapel_schedule_db_delete_row(PDO $pdo, int $chapelScheduleId): vo
     $pdo->prepare('DELETE FROM chapel_small_catechism_usage_db WHERE chapel_schedule_id = ?')->execute([$chapelScheduleId]);
     $pdo->prepare('DELETE FROM chapel_schedule_db WHERE id = ?')->execute([$chapelScheduleId]);
     oflc_chapel_schedule_db_delete_custom_small_catechism_labels($chapelScheduleId);
+}
+
+function oflc_chapel_schedule_db_renumber_school_year(PDO $pdo, string $schoolYear): void
+{
+    $schoolYear = trim($schoolYear);
+    if ($schoolYear === '') {
+        return;
+    }
+
+    oflc_chapel_schedule_db_ensure_tables($pdo);
+
+    $selectStmt = $pdo->prepare(
+        'SELECT id, week_number
+         FROM chapel_schedule_db
+         WHERE is_active = 1
+           AND school_year = ?
+         ORDER BY (`date` IS NULL) ASC, `date` ASC, week_number ASC, id ASC'
+    );
+    $selectStmt->execute([$schoolYear]);
+    $rows = $selectStmt->fetchAll();
+    if ($rows === []) {
+        return;
+    }
+
+    $updateStmt = $pdo->prepare(
+        'UPDATE chapel_schedule_db
+         SET week_number = ?
+         WHERE id = ?
+           AND is_active = 1'
+    );
+
+    foreach ($rows as $index => $row) {
+        $weekNumber = $index + 1;
+        if ((int) ($row['week_number'] ?? 0) === $weekNumber) {
+            continue;
+        }
+
+        $updateStmt->execute([$weekNumber, (int) ($row['id'] ?? 0)]);
+    }
+}
+
+function oflc_chapel_schedule_db_delete_school_year(PDO $pdo, string $schoolYear): int
+{
+    $schoolYear = trim($schoolYear);
+    if ($schoolYear === '') {
+        return 0;
+    }
+
+    oflc_chapel_schedule_db_ensure_tables($pdo);
+
+    $stmt = $pdo->prepare(
+        'SELECT id
+         FROM chapel_schedule_db
+         WHERE is_active = 1
+           AND school_year = ?'
+    );
+    $stmt->execute([$schoolYear]);
+    $ids = array_values(array_filter(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)), static function (int $id): bool {
+        return $id > 0;
+    }));
+
+    foreach ($ids as $id) {
+        oflc_chapel_schedule_db_delete_row($pdo, $id);
+    }
+
+    return count($ids);
 }

@@ -1393,6 +1393,94 @@ tr.is-selected td {
     white-space: nowrap;
 }
 
+.chapel-school-year-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background-color: rgba(17, 17, 17, 0.32);
+}
+
+.chapel-school-year-dialog[hidden] {
+    display: none;
+}
+
+.chapel-school-year-dialog-card {
+    width: min(420px, 100%);
+    padding: 18px;
+    border: 1px solid #222222;
+    background-color: #ffffff;
+    box-shadow: 0 10px 30px rgba(17, 17, 17, 0.2);
+}
+
+.chapel-school-year-dialog-card h4 {
+    margin: 0 0 14px;
+}
+
+.chapel-school-year-dialog-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.chapel-school-year-dialog-fields label,
+.chapel-school-year-dialog-fields span {
+    display: block;
+}
+
+.chapel-school-year-dialog-fields span {
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.chapel-school-year-dialog-fields input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px;
+    border: 1px solid #888888;
+    font: inherit;
+}
+
+.chapel-school-year-dialog-fields select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px;
+    border: 1px solid #888888;
+    font: inherit;
+}
+
+.chapel-school-year-remove-fields {
+    grid-template-columns: 1fr;
+}
+
+.chapel-school-year-dialog-error {
+    min-height: 1.2em;
+    margin: 10px 0 0;
+    color: #9b1f1f;
+    font-weight: bold;
+}
+
+.chapel-school-year-dialog-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+.chapel-school-year-cancel {
+    background-color: #f5f5f5;
+    color: #222222;
+}
+
+.chapel-remove-school-year-button,
+.chapel-school-year-delete {
+    background-color: #b13232;
+    color: #ffffff;
+}
+
 .chapel-week-save-button,
 .chapel-week-delete-button,
 .chapel-delete-confirm-yes,
