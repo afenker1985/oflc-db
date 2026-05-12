@@ -266,9 +266,9 @@ function oflc_print_chapel_format_observance(string $observance): string
                 </colgroup>
                 <thead>
                     <tr>
-                        <th scope="col">Wk.</th>
+                        <th scope="col">Wk</th>
                         <th scope="col">Date</th>
-                        <th scope="col">Ps</th>
+                        <th scope="col">Psalm</th>
                         <th scope="col">Text</th>
                         <th scope="col">Hymns</th>
                         <th scope="col">SC</th>
