@@ -153,12 +153,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$selectedSchoolYear = trim((string) ($_GET['school_year'] ?? ''));
+$currentSchoolYear = oflc_chapel_schedule_db_format_school_year(date('Y-m-d'));
+$schoolYearFilterWasSubmitted = array_key_exists('school_year', $_GET);
+$selectedSchoolYear = $schoolYearFilterWasSubmitted ? trim((string) $_GET['school_year']) : $currentSchoolYear;
 $selectedDateSort = strtolower(trim((string) ($_GET['date_sort'] ?? 'asc')));
 if (!in_array($selectedDateSort, ['asc', 'desc'], true)) {
     $selectedDateSort = 'asc';
 }
 $schoolYearOptions = oflc_chapel_schedule_db_fetch_school_years($pdo);
+if (!in_array($currentSchoolYear, $schoolYearOptions, true)) {
+    $schoolYearOptions[] = $currentSchoolYear;
+    rsort($schoolYearOptions, SORT_STRING);
+}
 if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOptions, true)) {
     $selectedSchoolYear = '';
 }
@@ -178,7 +184,8 @@ $latestChapelDateObject = $latestChapelDate !== '' ? DateTimeImmutable::createFr
 $suggestedChapelDate = $latestChapelDateObject instanceof DateTimeImmutable
     ? $latestChapelDateObject->modify('+7 days')->format('Y-m-d')
     : date('Y-m-d');
-$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($chapelRows);
+$allChapelRowsForDateLookup = oflc_chapel_schedule_db_fetch_rows($pdo, '', 'asc');
+$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($allChapelRowsForDateLookup);
 $printChapelScheduleParams = [];
 if ($selectedSchoolYear !== '') {
     $printChapelScheduleParams['school_year'] = $selectedSchoolYear;

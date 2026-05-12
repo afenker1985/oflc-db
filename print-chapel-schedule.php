@@ -19,7 +19,8 @@ if ($selectedSchoolYear !== '' && !in_array($selectedSchoolYear, $schoolYearOpti
     $selectedSchoolYear = '';
 }
 $chapelRows = oflc_chapel_schedule_db_fetch_rows($pdo, $selectedSchoolYear, 'asc');
-$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($chapelRows);
+$allChapelRowsForDateLookup = oflc_chapel_schedule_db_fetch_rows($pdo, '', 'asc');
+$nextChapelDateByDate = oflc_chapel_schedule_db_build_next_date_lookup($allChapelRowsForDateLookup);
 $printTitle = 'Chapel Schedule';
 $printSchoolYears = [];
 foreach ($chapelRows as $chapelRow) {
@@ -41,9 +42,9 @@ if ($selectedSchoolYear !== '') {
         . ' - '
         . oflc_chapel_schedule_db_display_school_year($lastSchoolYear);
 }
-$printLargeTitle = 'Chapel Schedule';
+$printScheduleTitle = 'Chapel Schedule';
 if ($printSchoolYearLabel !== '') {
-    $printLargeTitle .= ' ' . $printSchoolYearLabel;
+    $printScheduleTitle .= ' ' . $printSchoolYearLabel;
 }
 
 function oflc_print_chapel_multiline(array $values): string
@@ -146,10 +147,14 @@ function oflc_print_chapel_format_observance(string $observance): string
         .print-chapel-large-title {
             margin: 0 0 0.18in;
             font-family: "Times New Roman", Times, serif;
-            font-size: 22pt;
+            font-size: 16pt;
             font-weight: bold;
             line-height: 1.1;
             text-align: center;
+        }
+
+        .print-chapel-large-title span {
+            display: block;
         }
 
         .planning-table-wrap {
@@ -162,6 +167,16 @@ function oflc_print_chapel_format_observance(string $observance): string
             min-width: 6.5in;
             max-width: 6.5in;
             margin: 0 auto;
+        }
+
+        .chapel-schedule-table,
+        .chapel-schedule-table th,
+        .chapel-schedule-table td {
+            font-size: 12pt;
+        }
+
+        .chapel-schedule-table thead th {
+            font-size: 16pt;
         }
 
         .chapel-schedule-col-week {
@@ -208,6 +223,10 @@ function oflc_print_chapel_format_observance(string $observance): string
             margin-top: 4px;
         }
 
+        .chapel-schedule-table .chapel-baptismal-remembrance {
+            font: bold 11px Arial, Helvetica, sans-serif;
+        }
+
         thead {
             display: table-header-group;
         }
@@ -230,7 +249,10 @@ function oflc_print_chapel_format_observance(string $observance): string
 <body>
 <div id="print-chapel-schedule-root">
     <div class="print-schedule-page-header">
-        <h1 class="print-chapel-large-title"><?php echo htmlspecialchars($printLargeTitle, ENT_QUOTES, 'UTF-8'); ?></h1>
+        <h1 class="print-chapel-large-title">
+            <span>Our Father&apos;s Ev. Lutheran School</span>
+            <span><?php echo htmlspecialchars($printScheduleTitle, ENT_QUOTES, 'UTF-8'); ?></span>
+        </h1>
         <div class="print-schedule-page-label"><?php echo htmlspecialchars($printTitle, ENT_QUOTES, 'UTF-8'); ?>, p. 1</div>
     </div>
     <?php if ($chapelRows === []): ?>
@@ -331,7 +353,7 @@ function oflc_print_chapel_format_observance(string $observance): string
         var largeTitle = header.querySelector('.print-chapel-large-title');
 
         if (pageLabel) {
-            pageLabel.textContent = <?php echo json_encode($printLargeTitle); ?> + ', p. ' + pageNumber;
+            pageLabel.textContent = <?php echo json_encode($printScheduleTitle); ?> + ', p. ' + pageNumber;
             if (pageNumber === 1) {
                 pageLabel.remove();
             }
