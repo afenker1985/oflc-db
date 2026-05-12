@@ -175,10 +175,6 @@ function oflc_print_chapel_format_observance(string $observance): string
             font-size: 12pt;
         }
 
-        .chapel-schedule-table thead th {
-            font-size: 16pt;
-        }
-
         .chapel-schedule-col-week {
             width: 0.42in;
         }
@@ -250,7 +246,7 @@ function oflc_print_chapel_format_observance(string $observance): string
 <div id="print-chapel-schedule-root">
     <div class="print-schedule-page-header">
         <h1 class="print-chapel-large-title">
-            <span>Our Father&apos;s Ev. Lutheran School</span>
+            <span>Our Father’s Ev. Lutheran School</span>
             <span><?php echo htmlspecialchars($printScheduleTitle, ENT_QUOTES, 'UTF-8'); ?></span>
         </h1>
         <div class="print-schedule-page-label"><?php echo htmlspecialchars($printTitle, ENT_QUOTES, 'UTF-8'); ?>, p. 1</div>
