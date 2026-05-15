@@ -236,6 +236,11 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
 
     $window = oflc_get_liturgical_window($date, 7, 7);
     foreach ($window['entries'] ?? [] as $entry) {
+        if ((int) ($entry['weekday'] ?? -1) !== 0) {
+            foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
+                $logicKeys[] = $logicKey;
+            }
+        }
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
             $logicKeys[] = $logicKey;
         }
@@ -244,7 +249,7 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
     $logicKeyNameMap = oflc_service_db_fetch_logic_key_name_map($pdo, $logicKeys);
     $suggestions = [];
     $psalmsBySuggestion = [];
-    $fixedEntries = [];
+    $festivalEntries = [];
 
     foreach ($primaryLogicKeys as $logicKey) {
         $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
@@ -263,6 +268,24 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
     foreach ($window['entries'] ?? [] as $entry) {
         $entryDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($entry['date'] ?? ''));
         $dateLabel = $entryDate instanceof DateTimeImmutable ? $entryDate->format('D m/d') : (string) ($entry['date'] ?? '');
+        if ((int) ($entry['weekday'] ?? -1) !== 0) {
+            foreach (oflc_resolve_movable_logic_keys($entry['week'] ?? null, (int) ($entry['weekday'] ?? -1)) as $logicKey) {
+                if (in_array($logicKey, $primaryLogicKeys, true)) {
+                    continue;
+                }
+
+                $name = trim((string) ($logicKeyNameMap[$logicKey] ?? ''));
+                if ($name === '') {
+                    $name = oflc_chapel_schedule_db_humanize_logic_key($logicKey);
+                }
+                $festivalEntries[] = [
+                    'date' => (string) ($entry['date'] ?? ''),
+                    'label' => $name . ' (' . $dateLabel . ')',
+                    'logic_key' => $logicKey,
+                ];
+            }
+        }
+
         foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
             if (in_array($logicKey, $primaryLogicKeys, true)) {
                 continue;
@@ -272,7 +295,7 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
             if ($name === '') {
                 $name = oflc_chapel_schedule_db_humanize_logic_key($logicKey);
             }
-            $fixedEntries[] = [
+            $festivalEntries[] = [
                 'date' => (string) ($entry['date'] ?? ''),
                 'label' => $name . ' (' . $dateLabel . ')',
                 'logic_key' => $logicKey,
@@ -288,9 +311,9 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
 
         return strcmp((string) ($first['label'] ?? ''), (string) ($second['label'] ?? ''));
     };
-    usort($fixedEntries, $entrySort);
+    usort($festivalEntries, $entrySort);
 
-    foreach ($fixedEntries as $entry) {
+    foreach ($festivalEntries as $entry) {
         oflc_chapel_schedule_db_add_observance_suggestion(
             $pdo,
             $suggestions,
