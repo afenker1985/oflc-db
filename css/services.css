@@ -735,6 +735,41 @@
     color: #b13232;
 }
 
+.update-service-fill-hymns-controls {
+    width: min(100%, var(--service-card-frame-width));
+    box-sizing: border-box;
+    max-width: none;
+    margin-top: 10px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.update-service-fill-hymns-controls .service-card-fill-row {
+    align-items: stretch;
+}
+
+.update-service-fill-anchor {
+    flex: 0 0 260px;
+    width: 260px;
+}
+
+.update-service-fill-anchor .service-card-suggestion-list {
+    top: auto;
+    bottom: calc(100% + 4px);
+    width: 260px;
+    min-width: 260px;
+    max-width: 360px;
+}
+
+.update-service-fill-row-submit {
+    margin-left: auto;
+    padding: 10px 12px;
+    background-color: #f4d8a8;
+    border-color: #c69d58;
+    font: inherit;
+    cursor: pointer;
+}
+
 .service-card-actions-buttons {
     display: flex;
     gap: 10px;

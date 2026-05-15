@@ -373,8 +373,7 @@ function oflc_service_db_fetch_hymn_fill_templates(
             ON hs.id = hu.slot_id
          LEFT JOIN hymn_db h
             ON h.id = hu.hymn_id
-         WHERE s.is_active = 1
-           AND s.copied_from_service_id IS NULL
+         WHERE s.copied_from_service_id IS NULL
          ORDER BY s.service_date DESC, s.id DESC, hu.sort_order ASC, hu.id ASC'
     );
 

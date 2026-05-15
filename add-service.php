@@ -811,7 +811,7 @@ $copy_service_config = oflc_get_copy_service_config($selected_service_date_obj);
 $logic_columns_ready = false;
 $date_error = null;
 $recently_celebrated_observance_ids = [];
-$hymn_catalog = oflc_service_db_fetch_hymn_catalog($pdo);
+$hymn_catalog = oflc_service_db_fetch_hymn_catalog($pdo, true);
 $hymn_suggestions = $hymn_catalog['suggestions'];
 $service_settings = oflc_service_db_fetch_service_settings($pdo);
 $service_setting_catalog_payload = oflc_build_service_setting_catalog_payload($service_settings);
@@ -2099,15 +2099,17 @@ window.oflcInitializePlannerUI = function (root) {
                 radio.dataset.wasChecked = radio.checked ? '1' : '0';
             });
 
+            radio.addEventListener('change', function () {
+                if (radio.checked) {
+                    onChange(radio.value || '', true);
+                }
+            });
+
             label.addEventListener('click', function (event) {
                 if (radio.dataset.wasChecked === '1') {
                     event.preventDefault();
                     radio.checked = false;
-                    onChange('');
-                } else {
-                    window.setTimeout(function () {
-                        onChange(radio.checked ? radio.value : '');
-                    }, 0);
+                    onChange('', false);
                 }
 
                 delete radio.dataset.wasChecked;
@@ -4181,7 +4183,7 @@ window.oflcInitializePlannerUI = function (root) {
         readingsPane.innerHTML = '&nbsp;';
     }
 
-    function renderReadingsPane(readingSets) {
+    function renderReadingsPane(readingSets, allowDefaultSelection) {
         var html = '';
         var hasSelectedReadingSet = false;
         var defaultReadingSetId = '';
@@ -4190,7 +4192,11 @@ window.oflcInitializePlannerUI = function (root) {
         var showSmallCatechismSelect = isAdventMidweekObservanceName(observanceName) || isLentMidweekObservanceName(observanceName);
         var showPassionReadingSelect = isLentMidweekObservanceName(observanceName);
 
-        if (selectedReadingSetId === '') {
+        if (typeof allowDefaultSelection === 'undefined') {
+            allowDefaultSelection = true;
+        }
+
+        if (selectedReadingSetId === '' && allowDefaultSelection) {
             defaultReadingSetId = getReadingSetDefaultId(readingSets);
             if (defaultReadingSetId !== '') {
                 selectedReadingSetId = defaultReadingSetId;
@@ -4269,9 +4275,9 @@ window.oflcInitializePlannerUI = function (root) {
                 gospel: readingEditorDraft.gospel || ''
             };
         }
-        bindReadingSelectionBehavior(readingsPane, function (value) {
+        bindReadingSelectionBehavior(readingsPane, function (value, allowDefaultAfterChange) {
             selectedReadingSetId = value || '';
-            renderReadingsPane(readingSets || []);
+            renderReadingsPane(readingSets || [], !!allowDefaultAfterChange);
         });
         Array.prototype.forEach.call(readingsPane.querySelectorAll('.js-new-reading-set-input'), function (input) {
             input.addEventListener('input', captureReadingDraftState);

@@ -216,6 +216,161 @@ function oflc_remove_format_search_label(array $service): string
     return $label;
 }
 
+function oflc_remove_is_unified_thursday_sunday_pair(array $leftService, array $rightService): bool
+{
+    $leftDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($leftService['service_date'] ?? ''));
+    $rightDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($rightService['service_date'] ?? ''));
+    if (!$leftDate instanceof DateTimeImmutable || !$rightDate instanceof DateTimeImmutable) {
+        return false;
+    }
+
+    $weekdayPair = [$leftDate->format('w'), $rightDate->format('w')];
+    sort($weekdayPair);
+    if ($weekdayPair !== ['0', '4'] || abs((int) $rightDate->diff($leftDate)->format('%r%a')) !== 3) {
+        return false;
+    }
+
+    $thursdayService = $leftDate->format('w') === '4' ? $leftService : $rightService;
+    $sundayService = $leftDate->format('w') === '0' ? $leftService : $rightService;
+
+    return (int) ($thursdayService['copied_from_service_id'] ?? 0) === (int) ($sundayService['id'] ?? 0);
+}
+
+function oflc_remove_group_search_services(array $services): array
+{
+    $groups = [];
+    $servicesById = [];
+    $groupedServiceIds = [];
+
+    foreach ($services as $service) {
+        $serviceId = (int) ($service['id'] ?? 0);
+        if ($serviceId > 0) {
+            $servicesById[$serviceId] = $service;
+        }
+    }
+
+    foreach ($services as $service) {
+        $serviceId = (int) ($service['id'] ?? 0);
+        if ($serviceId > 0 && isset($groupedServiceIds[$serviceId])) {
+            continue;
+        }
+
+        $serviceDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
+        $group = [$service];
+
+        if ($serviceDate instanceof DateTimeImmutable && $serviceDate->format('w') === '0') {
+            foreach ($services as $candidateService) {
+                $candidateServiceId = (int) ($candidateService['id'] ?? 0);
+                if (
+                    $candidateServiceId > 0
+                    && !isset($groupedServiceIds[$candidateServiceId])
+                    && oflc_remove_is_unified_thursday_sunday_pair($service, $candidateService)
+                ) {
+                    $group[] = $candidateService;
+                    break;
+                }
+            }
+        } elseif ((int) ($service['copied_from_service_id'] ?? 0) > 0) {
+            $sundayServiceId = (int) ($service['copied_from_service_id'] ?? 0);
+            $sundayService = $servicesById[$sundayServiceId] ?? null;
+            if (is_array($sundayService) && oflc_remove_is_unified_thursday_sunday_pair($sundayService, $service)) {
+                $group = [$sundayService, $service];
+            }
+        }
+
+        foreach ($group as $groupService) {
+            $groupServiceId = (int) ($groupService['id'] ?? 0);
+            if ($groupServiceId > 0) {
+                $groupedServiceIds[$groupServiceId] = true;
+            }
+        }
+
+        $groups[] = $group;
+    }
+
+    return $groups;
+}
+
+function oflc_remove_get_group_primary_service(array $services): array
+{
+    foreach ($services as $service) {
+        $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
+        if ($dateObject instanceof DateTimeImmutable && $dateObject->format('w') === '0') {
+            return $service;
+        }
+    }
+
+    return $services[0] ?? [];
+}
+
+function oflc_remove_format_group_date_label(array $services): string
+{
+    $thursday = null;
+    $sunday = null;
+    $fallback = [];
+
+    foreach ($services as $service) {
+        $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($service['service_date'] ?? ''));
+        if (!$dateObject instanceof DateTimeImmutable) {
+            continue;
+        }
+
+        $fallback[] = $dateObject;
+        if ($dateObject->format('w') === '4') {
+            $thursday = $dateObject;
+        } elseif ($dateObject->format('w') === '0') {
+            $sunday = $dateObject;
+        }
+    }
+
+    if ($thursday instanceof DateTimeImmutable && $sunday instanceof DateTimeImmutable) {
+        return 'Thur, ' . $thursday->format('F j, Y') . ' and Sunday, ' . $sunday->format('F j, Y');
+    }
+
+    usort($fallback, static function (DateTimeImmutable $left, DateTimeImmutable $right): int {
+        return $left <=> $right;
+    });
+
+    return isset($fallback[0]) ? $fallback[0]->format('Y-m-d') : '';
+}
+
+function oflc_remove_format_group_search_label(array $services): string
+{
+    if (count($services) <= 1) {
+        return oflc_remove_format_search_label($services[0] ?? []);
+    }
+
+    $primaryService = oflc_remove_get_group_primary_service($services);
+    $labelParts = [
+        oflc_remove_format_group_date_label($services),
+    ];
+
+    $serviceOrder = (int) ($primaryService['service_order'] ?? 1);
+    if ($serviceOrder > 1) {
+        $labelParts[] = 'Service ' . $serviceOrder;
+    }
+
+    $observanceName = trim((string) ($primaryService['observance_name'] ?? ''));
+    if ($observanceName !== '') {
+        $labelParts[] = $observanceName;
+    }
+
+    $settingName = trim((string) ($primaryService['setting_name'] ?? ''));
+    if ($settingName !== '') {
+        $labelParts[] = $settingName;
+    }
+
+    $label = implode(' - ', array_filter($labelParts, static function (string $part): bool {
+        return trim($part) !== '';
+    }));
+
+    if (!(bool) ($primaryService['is_active'] ?? false)) {
+        $label .= ' [Inactive]';
+    }
+
+    return $label;
+}
+
 function oflc_remove_register_lookup(array &$lookup, string $key, int $serviceId): void
 {
     $key = strtolower(trim($key));
@@ -367,17 +522,46 @@ foreach ($services as $service) {
         'readings_html' => oflc_remove_render_readings_html($service, $observanceDetail, $smallCatechismLabels, $passionReadingLabel),
         'hymns_html' => oflc_remove_render_hymns_html($hymnRowsByService[$serviceId] ?? []),
     ];
-    $searchPayload['search_labels'][] = $searchLabel;
-    $searchPayload['id_by_label'][$searchLabel] = $serviceId;
+}
 
-    foreach ([
-        $searchLabel,
-        (string) ($service['service_date'] ?? ''),
-        trim((string) ($service['observance_name'] ?? '')),
-        trim((string) ($service['setting_name'] ?? '')),
-        $displayDate,
-    ] as $lookupValue) {
-        oflc_remove_register_lookup($searchPayload['id_by_lookup'], $lookupValue, $serviceId);
+foreach (oflc_remove_group_search_services($services) as $serviceGroup) {
+    $primaryService = oflc_remove_get_group_primary_service($serviceGroup);
+    $primaryServiceId = (int) ($primaryService['id'] ?? 0);
+    if ($primaryServiceId <= 0 || !isset($searchPayload['services_by_id'][$primaryServiceId])) {
+        continue;
+    }
+
+    $searchLabel = oflc_remove_format_group_search_label($serviceGroup);
+    if ($searchLabel === '') {
+        continue;
+    }
+
+    $searchPayload['services_by_id'][$primaryServiceId]['search_label'] = $searchLabel;
+    foreach ($serviceGroup as $groupService) {
+        $groupServiceId = (int) ($groupService['id'] ?? 0);
+        if ($groupServiceId > 0 && isset($searchPayload['services_by_id'][$groupServiceId])) {
+            $searchPayload['services_by_id'][$groupServiceId]['search_label'] = $searchLabel;
+        }
+    }
+
+    $searchPayload['search_labels'][] = $searchLabel;
+    $searchPayload['id_by_label'][$searchLabel] = $primaryServiceId;
+
+    foreach ($serviceGroup as $groupService) {
+        $groupServiceDateObject = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($groupService['service_date'] ?? ''));
+        $groupDisplayDate = $groupServiceDateObject instanceof DateTimeImmutable
+            ? $groupServiceDateObject->format('l, F j, Y')
+            : trim((string) ($groupService['service_date'] ?? ''));
+
+        foreach ([
+            $searchLabel,
+            (string) ($groupService['service_date'] ?? ''),
+            trim((string) ($groupService['observance_name'] ?? '')),
+            trim((string) ($groupService['setting_name'] ?? '')),
+            $groupDisplayDate,
+        ] as $lookupValue) {
+            oflc_remove_register_lookup($searchPayload['id_by_lookup'], $lookupValue, $primaryServiceId);
+        }
     }
 }
 
