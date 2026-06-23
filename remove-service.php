@@ -445,7 +445,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->commit();
             if ($serviceScheduleChanged) {
-                oflc_service_schedule_mark_updated();
+                try {
+                    oflc_service_schedule_mark_updated();
+                } catch (Throwable $exception) {
+                    // The service change is already committed; a marker update cannot make it fail.
+                }
             }
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
