@@ -27,7 +27,7 @@ function oflc_church_year_request_value(array $data, string $key, string $defaul
 
 function oflc_church_year_valid_section(string $section): string
 {
-    return in_array($section, ['festival_half', 'church_half', 'festivals', 'midweeks'], true) ? $section : 'festival_half';
+    return in_array($section, ['festival_half', 'church_half', 'festivals', 'midweeks', 'observances'], true) ? $section : 'festival_half';
 }
 
 function oflc_church_year_section_label(string $section): string
@@ -39,6 +39,8 @@ function oflc_church_year_section_label(string $section): string
             return 'Festivals';
         case 'midweeks':
             return 'Midweeks';
+        case 'observances':
+            return 'Observances';
         case 'festival_half':
         default:
             return 'Festival Half';
@@ -457,7 +459,7 @@ include 'includes/header.php';
     <form class="church-year-toolbar" method="post" action="church-year.php">
         <input type="hidden" name="church_year_filter" value="1">
         <input type="hidden" name="section" value="<?php echo htmlspecialchars($activeSection, ENT_QUOTES, 'UTF-8'); ?>">
-        <?php foreach (['festival_half', 'church_half', 'festivals', 'midweeks'] as $section): ?>
+        <?php foreach (['festival_half', 'church_half', 'festivals', 'midweeks', 'observances'] as $section): ?>
             <button type="submit" class="church-year-section-button<?php echo $activeSection === $section ? ' is-active' : ''; ?>" onclick="this.form.elements.section.value='<?php echo htmlspecialchars($section, ENT_QUOTES, 'UTF-8'); ?>';">
                 <?php echo htmlspecialchars(oflc_church_year_section_label($section), ENT_QUOTES, 'UTF-8'); ?>
             </button>

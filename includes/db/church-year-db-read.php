@@ -76,6 +76,15 @@ function oflc_church_year_db_get_festival_half_logic_keys(): array
     )));
 }
 
+function oflc_church_year_db_get_standard_logic_keys(): array
+{
+    return array_values(array_unique(array_merge(
+        oflc_church_year_db_get_festival_half_logic_keys(),
+        oflc_church_year_db_get_movable_logic_keys_by_range(30, 57),
+        oflc_church_year_db_get_festival_fixed_logic_keys()
+    )));
+}
+
 function oflc_church_year_db_get_sort_logic_key(string $logicKey): string
 {
     $logicKey = trim($logicKey);
@@ -361,6 +370,15 @@ function oflc_church_year_db_fetch_entries(PDO $pdo, string $section, ?int $midw
     } elseif ($section === 'festivals') {
         $sql .= ' AND is_midweek = 0 AND (logic_key IN (' . implode(', ', array_fill(0, count($fixedKeys), '?')) . ') OR (calendar_date IS NOT NULL AND CAST(calendar_date AS CHAR) <> "0000-00-00" AND (logic_key IS NULL OR logic_key = "")))';
         $params = array_merge($params, $fixedKeys);
+    } elseif ($section === 'observances') {
+        $standardKeys = oflc_church_year_db_get_standard_logic_keys();
+        $sql .= ' AND is_midweek = 0
+                  AND COALESCE(season, "") <> ?
+                  AND NOT ' . oflc_church_year_db_midweek_name_sql() . '
+                  AND NOT (calendar_date IS NOT NULL AND CAST(calendar_date AS CHAR) <> "0000-00-00" AND (logic_key IS NULL OR logic_key = ""))
+                  AND (logic_key IS NULL OR logic_key = "" OR logic_key NOT IN (' . implode(', ', array_fill(0, count($standardKeys), '?')) . '))';
+        $params[] = 'Christmas';
+        $params = array_merge($params, $standardKeys);
     } else {
         $sql .= ' AND is_midweek = 0 AND (logic_key IN (' . implode(', ', array_fill(0, count($festivalHalfKeys), '?')) . ') OR (season = ? AND NOT ' . oflc_church_year_db_midweek_name_sql() . ') OR ' . oflc_church_year_db_midweek_name_sql() . ')';
         $params = array_merge($params, $festivalHalfKeys);
@@ -405,7 +423,7 @@ function oflc_church_year_db_fetch_entries(PDO $pdo, string $section, ?int $midw
         }
     }
 
-    if ($section !== 'midweeks') {
+    if ($section !== 'midweeks' && $section !== 'observances') {
         $matchedEntryIds = array_map(static function (array $entry): int {
             return (int) ($entry['id'] ?? 0);
         }, $entries);
@@ -443,7 +461,7 @@ function oflc_church_year_db_fetch_entries(PDO $pdo, string $section, ?int $midw
         $sortMap = array_flip($churchHalfKeys);
     } elseif ($section === 'festivals') {
         $sortMap = oflc_church_year_db_build_festival_sort_map($fixedKeys);
-    } elseif ($section !== 'midweeks') {
+    } elseif ($section !== 'midweeks' && $section !== 'observances') {
         $sortMap = array_flip($festivalHalfKeys);
     }
 
