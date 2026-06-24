@@ -95,6 +95,7 @@ function oflc_get_fixed_logic_keys(): array
         '5-1' => 'saint_philip_and_saint_james',
         '6-11' => 'saint_barnabas',
         '6-24' => 'nativity_of_john_the_baptist',
+        '6-25' => 'presentation_of_augsburg_confession',
         '6-29' => 'saint_peter_and_saint_paul',
         '7-2' => 'visitation',
         '7-22' => 'saint_mary_magdalene',

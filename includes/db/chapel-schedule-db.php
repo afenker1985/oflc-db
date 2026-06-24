@@ -241,7 +241,7 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
                 $logicKeys[] = $logicKey;
             }
         }
-        foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
+        foreach (oflc_get_liturgical_entry_fixed_logic_keys($entry) as $logicKey) {
             $logicKeys[] = $logicKey;
         }
     }
@@ -286,7 +286,7 @@ function oflc_chapel_schedule_db_build_observance_suggestion_payload(PDO $pdo, s
             }
         }
 
-        foreach (oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day']) as $logicKey) {
+        foreach (oflc_get_liturgical_entry_fixed_logic_keys($entry) as $logicKey) {
             if (in_array($logicKey, $primaryLogicKeys, true)) {
                 continue;
             }

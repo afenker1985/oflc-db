@@ -921,7 +921,7 @@ if ($selected_date !== '') {
     } elseif ($logic_columns_ready) {
         $logic_keys_for_names = [];
         foreach ($liturgical_window['entries'] as $entry) {
-            foreach (oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']) as $logic_key) {
+            foreach (oflc_get_liturgical_entry_fixed_logic_keys($entry) as $logic_key) {
                 $logic_keys_for_names[] = $logic_key;
             }
 
@@ -939,7 +939,7 @@ if ($selected_date !== '') {
         );
         $selected_fixed_matches = oflc_service_db_fetch_observances_by_logic_keys(
             $pdo,
-            oflc_resolve_fixed_logic_keys((int) $liturgical_window['selected']['month'], (int) $liturgical_window['selected']['day'])
+            oflc_get_liturgical_entry_fixed_logic_keys($liturgical_window['selected'])
         );
 
         foreach ($liturgical_window['sunday_options'] as $index => $option) {
@@ -952,7 +952,7 @@ if ($selected_date !== '') {
         foreach ($liturgical_window['entries'] as $index => $entry) {
             $liturgical_window['entries'][$index]['fixed_matches'] = oflc_service_db_fetch_observances_by_logic_keys(
                 $pdo,
-                oflc_resolve_fixed_logic_keys((int) $entry['month'], (int) $entry['day'])
+                oflc_get_liturgical_entry_fixed_logic_keys($entry)
             );
 
             if ($entry['is_sunday']) {
@@ -994,7 +994,7 @@ if ($selected_date !== '') {
         $feast_service_option_choices = [];
 
         foreach ($liturgical_window['entries'] as $entry) {
-            $festival_keys = oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']);
+            $festival_keys = oflc_get_liturgical_entry_fixed_logic_keys($entry);
             foreach ($festival_keys as $logic_key) {
                 $matching_festival = null;
                 foreach ($entry['fixed_matches'] as $observance) {
@@ -2594,6 +2594,9 @@ window.oflcInitializePlannerUI = function (root) {
     } catch (error) {
         observanceCatalog = { by_id: {}, name_lookup: {} };
     }
+    allObservanceSuggestions = Array.prototype.map.call(Object.keys(observanceCatalog.by_id || {}), function (key) {
+        return observanceCatalog.by_id[key] && observanceCatalog.by_id[key].name ? observanceCatalog.by_id[key].name : '';
+    });
 
     try {
         dateObservanceSuggestions = JSON.parse(form.getAttribute('data-date-observance-suggestions') || '[]');
@@ -2631,10 +2634,6 @@ window.oflcInitializePlannerUI = function (root) {
                 observance_id: selection.observanceId
             });
         }
-    });
-
-    allObservanceSuggestions = Array.prototype.map.call(Object.keys(observanceCatalog.by_id || {}), function (key) {
-        return observanceCatalog.by_id[key] && observanceCatalog.by_id[key].name ? observanceCatalog.by_id[key].name : '';
     });
 
     try {

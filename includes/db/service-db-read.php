@@ -83,6 +83,23 @@ function oflc_service_db_fetch_recently_celebrated_observance_ids(PDO $pdo, Date
 }
 
 // Finds active liturgical calendar rows for one or more planning logic keys.
+function oflc_service_db_logic_key_fallback_names(array $logicKeys): array
+{
+    $fallbacks = [
+        'harvest_festival' => 'Harvest Festival',
+    ];
+
+    $namesByLogicKey = [];
+    foreach ($logicKeys as $logicKey) {
+        $logicKey = trim((string) $logicKey);
+        if ($logicKey !== '' && isset($fallbacks[$logicKey])) {
+            $namesByLogicKey[$logicKey] = $fallbacks[$logicKey];
+        }
+    }
+
+    return $namesByLogicKey;
+}
+
 function oflc_service_db_fetch_observances_by_logic_keys(PDO $pdo, array $logicKeys): array
 {
     $logicKeys = array_values(array_unique(array_filter(array_map(static function ($value): string {
@@ -95,17 +112,26 @@ function oflc_service_db_fetch_observances_by_logic_keys(PDO $pdo, array $logicK
         return [];
     }
 
-    $placeholders = implode(', ', array_fill(0, count($logicKeys), '?'));
+    $fallbackNamesByLogicKey = oflc_service_db_logic_key_fallback_names($logicKeys);
+    $fallbackNames = array_values($fallbackNamesByLogicKey);
+    $logicPlaceholders = implode(', ', array_fill(0, count($logicKeys), '?'));
+    $fallbackSql = $fallbackNames !== []
+        ? ' OR (lc.logic_key IS NULL AND LOWER(lc.name) IN (' . implode(', ', array_fill(0, count($fallbackNames), '?')) . '))'
+        : '';
+    $logicKeySelect = 'lc.logic_key';
+    if (isset($fallbackNamesByLogicKey['harvest_festival'])) {
+        $logicKeySelect = "CASE WHEN lc.logic_key IS NULL AND LOWER(lc.name) = 'harvest festival' THEN 'harvest_festival' ELSE lc.logic_key END";
+    }
     $stmt = $pdo->prepare(
-        'SELECT lc.id, lc.name, lc.logic_key, COUNT(rs.id) AS reading_set_count
+        'SELECT lc.id, lc.name, ' . $logicKeySelect . ' AS logic_key, COUNT(rs.id) AS reading_set_count
          FROM liturgical_calendar lc
          LEFT JOIN reading_sets rs ON rs.liturgical_calendar_id = lc.id AND rs.is_active = 1
          WHERE lc.is_active = 1
-           AND lc.logic_key IN (' . $placeholders . ')
-         GROUP BY lc.id, lc.name, lc.logic_key
+           AND (lc.logic_key IN (' . $logicPlaceholders . ')' . $fallbackSql . ')
+         GROUP BY lc.id, lc.name, ' . $logicKeySelect . '
          ORDER BY lc.name'
     );
-    $stmt->execute($logicKeys);
+    $stmt->execute(array_merge($logicKeys, array_map('strtolower', $fallbackNames)));
 
     return $stmt->fetchAll();
 }
@@ -138,19 +164,33 @@ function oflc_service_db_fetch_logic_key_name_map(PDO $pdo, array $logicKeys): a
         return [];
     }
 
-    $placeholders = implode(', ', array_fill(0, count($logicKeys), '?'));
+    $fallbackNamesByLogicKey = oflc_service_db_logic_key_fallback_names($logicKeys);
+    $fallbackNames = array_values($fallbackNamesByLogicKey);
+    $logicPlaceholders = implode(', ', array_fill(0, count($logicKeys), '?'));
+    $fallbackSql = $fallbackNames !== []
+        ? ' OR (logic_key IS NULL AND LOWER(name) IN (' . implode(', ', array_fill(0, count($fallbackNames), '?')) . '))'
+        : '';
     $stmt = $pdo->prepare(
         'SELECT logic_key, name
          FROM liturgical_calendar
          WHERE is_active = 1
-           AND logic_key IN (' . $placeholders . ')
+           AND (logic_key IN (' . $logicPlaceholders . ')' . $fallbackSql . ')
          ORDER BY id'
     );
-    $stmt->execute($logicKeys);
+    $stmt->execute(array_merge($logicKeys, array_map('strtolower', $fallbackNames)));
 
     $nameMap = [];
     foreach ($stmt->fetchAll() as $row) {
         $logicKey = trim((string) ($row['logic_key'] ?? ''));
+        if ($logicKey === '') {
+            $normalizedName = strtolower(trim((string) ($row['name'] ?? '')));
+            foreach ($fallbackNamesByLogicKey as $fallbackLogicKey => $fallbackName) {
+                if ($normalizedName === strtolower($fallbackName)) {
+                    $logicKey = $fallbackLogicKey;
+                    break;
+                }
+            }
+        }
         if ($logicKey !== '' && !isset($nameMap[$logicKey])) {
             $nameMap[$logicKey] = (string) ($row['name'] ?? '');
         }
@@ -1056,7 +1096,7 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
         $logicKeysForNames = [];
 
         foreach ($window['entries'] as $entry) {
-            foreach (oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']) as $logicKey) {
+            foreach (oflc_get_liturgical_entry_fixed_logic_keys($entry) as $logicKey) {
                 $logicKeysForNames[] = $logicKey;
             }
 
@@ -1073,7 +1113,7 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
 
         foreach ($window['entries'] as $entry) {
             $weekdayDate = DateTimeImmutable::createFromFormat('Y-m-d', $entry['date']);
-            $festivalKeys = oflc_resolve_fixed_logic_keys($entry['month'], $entry['day']);
+            $festivalKeys = oflc_get_liturgical_entry_fixed_logic_keys($entry);
             foreach ($festivalKeys as $logicKey) {
                 $festivalMatches = oflc_service_db_fetch_observances_by_logic_keys($pdo, [$logicKey]);
                 $festivalObservanceId = (int) ($festivalMatches[0]['id'] ?? 0);

@@ -25,8 +25,8 @@ function oflc_get_liturgical_day(string $date_string)
         'week' => $week,
         'logic_keys' => oflc_resolve_logic_keys($week, (int) $date->format('w'), (int) $date->format('n'), (int) $date->format('j')),
         'logic_key' => oflc_resolve_logic_key($week, (int) $date->format('w'), (int) $date->format('n'), (int) $date->format('j')),
-        'fixed_logic_keys' => oflc_resolve_fixed_logic_keys((int) $date->format('n'), (int) $date->format('j')),
-        'fixed_logic_key' => oflc_resolve_fixed_logic_key((int) $date->format('n'), (int) $date->format('j')),
+        'fixed_logic_keys' => oflc_resolve_calendar_logic_keys($date),
+        'fixed_logic_key' => oflc_resolve_calendar_logic_key($date),
         'sunday_date' => $sunday->format('Y-m-d'),
         'is_sunday' => (int) $date->format('w') === 0,
     ];
@@ -131,6 +131,40 @@ function oflc_resolve_fixed_logic_key(int $month, int $day)
 {
     $keys = oflc_resolve_fixed_logic_keys($month, $day);
     return $keys[0] ?? null;
+}
+
+function oflc_resolve_calendar_logic_keys(DateTimeImmutable $date): array
+{
+    $keys = oflc_resolve_fixed_logic_keys((int) $date->format('n'), (int) $date->format('j'));
+
+    if (oflc_is_us_thanksgiving($date)) {
+        $keys[] = 'harvest_festival';
+    }
+
+    return array_values(array_unique($keys));
+}
+
+function oflc_resolve_calendar_logic_key(DateTimeImmutable $date)
+{
+    $keys = oflc_resolve_calendar_logic_keys($date);
+    return $keys[0] ?? null;
+}
+
+function oflc_is_us_thanksgiving(DateTimeImmutable $date): bool
+{
+    return (int) $date->format('n') === 11
+        && (int) $date->format('w') === 4
+        && (int) $date->format('j') >= 22
+        && (int) $date->format('j') <= 28;
+}
+
+function oflc_get_liturgical_entry_fixed_logic_keys(array $entry): array
+{
+    if (isset($entry['fixed_logic_keys']) && is_array($entry['fixed_logic_keys'])) {
+        return oflc_normalize_logic_keys($entry['fixed_logic_keys']);
+    }
+
+    return oflc_resolve_fixed_logic_keys((int) ($entry['month'] ?? 0), (int) ($entry['day'] ?? 0));
 }
 
 function oflc_get_sunday(DateTimeImmutable $date): DateTimeImmutable
