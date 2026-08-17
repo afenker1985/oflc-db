@@ -808,6 +808,14 @@ $selected_option_is_sunday = $selected_service_date_obj instanceof DateTimeImmut
     ? $selected_service_date_obj->format('w') === '0'
     : false;
 $copy_service_config = oflc_get_copy_service_config($selected_service_date_obj);
+$submitted_copy_service_direction = oflc_request_value($request_data, 'copy_service_direction');
+if (
+    ($copy_service_config['direction'] ?? '') === 'previous_thursday'
+    && !isset($request_data[(string) ($copy_service_config['toggle_name'] ?? '')])
+    && $submitted_copy_service_direction !== 'previous_thursday'
+) {
+    $request_data[(string) $copy_service_config['toggle_name']] = '1';
+}
 $logic_columns_ready = false;
 $date_error = null;
 $recently_celebrated_observance_ids = [];
@@ -1573,6 +1581,7 @@ include 'includes/header.php';
     >
         <input type="hidden" name="auto_preview" id="auto-preview-flag" value="">
         <input type="hidden" name="preview_service_date" id="preview_service_date" value="<?php echo htmlspecialchars($selected_date, ENT_QUOTES, 'UTF-8'); ?>">
+        <input type="hidden" name="copy_service_direction" value="<?php echo htmlspecialchars((string) ($copy_service_config['direction'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
         <input type="hidden" name="hymn_row_order" id="hymn_row_order" value="<?php echo htmlspecialchars(json_encode(array_values($submitted_hymn_row_order), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
         <?php if ($hymn_suggestions !== []): ?>
             <datalist id="hymn-options">
