@@ -1784,6 +1784,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
 
     $hasDraftReadings = false;
     $draftOne = $submittedState['new_reading_sets'][1] ?? null;
+    $hasSubmittedReadingDraft = false;
+    foreach (['psalm', 'old_testament', 'epistle', 'gospel'] as $readingField) {
+        if (array_key_exists('new_reading_set_1_' . $readingField, $_POST)) {
+            $hasSubmittedReadingDraft = true;
+            break;
+        }
+    }
     foreach ($submittedState['new_reading_sets'] as $draft) {
         if (!empty($draft['has_content'])) {
             $hasDraftReadings = true;
@@ -1797,7 +1804,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
             $errors[] = 'Enter readings for the new observance.';
         }
     }
-    if ($observanceHasReadings && $hasDraftReadings && $selectedReadingSetId === null) {
+    if ($observanceHasReadings && $hasSubmittedReadingDraft && $selectedReadingSetId === null) {
         $errors[] = 'Select a valid reading set before editing readings.';
     }
 
@@ -2153,7 +2160,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                             (int) ($persistedObservanceDetail['observance']['id'] ?? 0)
                         ) ?? $persistedObservanceDetail;
                     }
-                } elseif ($hasDraftReadings && is_array($draftOne) && $selectedReadingSetId !== null) {
+                } elseif ($hasSubmittedReadingDraft && is_array($draftOne) && $selectedReadingSetId !== null) {
                     oflc_service_db_update_existing_reading_set(
                         $pdo,
                         $selectedReadingSetId,
