@@ -884,6 +884,7 @@ foreach ($active_observance_details as $observance_id => $detail) {
     $observance_catalog_payload['by_id'][$observance_id] = [
         'id' => $observance_id,
         'name' => $name,
+        'logic_key' => trim((string) ($detail['observance']['logic_key'] ?? '')),
         'latin_name' => trim((string) ($detail['observance']['latin_name'] ?? '')),
         'color_display' => oflc_get_liturgical_color_display($detail['observance']['liturgical_color'] ?? null),
         'color_class' => oflc_get_liturgical_color_text_class($detail['observance']['liturgical_color'] ?? null),
@@ -3752,6 +3753,7 @@ window.oflcInitializePlannerUI = function (root) {
         var serviceSettingDetail = findServiceSettingDetailByName(serviceSettingInput.value);
         var currentSelectedId = String(fillHymnsIdInput && fillHymnsIdInput.value ? fillHymnsIdInput.value : '');
         var observanceId = matchingObservance && matchingObservance.id ? parseInt(matchingObservance.id, 10) : 0;
+        var observanceLogicKey = String(matchingObservance && matchingObservance.logic_key ? matchingObservance.logic_key : '').trim().toLowerCase();
         var observanceName = String(observanceInput.value || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
         var serviceSettingId = serviceSettingDetail && serviceSettingDetail.id ? parseInt(serviceSettingDetail.id, 10) : 0;
         var hasSelectedService = serviceSettingId > 0;
@@ -3767,8 +3769,11 @@ window.oflcInitializePlannerUI = function (root) {
             hymnFillTemplates.forEach(function (template) {
                 var templateObservanceId = parseInt(template && template.liturgical_calendar_id ? template.liturgical_calendar_id : '0', 10);
                 var templateSettingId = parseInt(template && template.service_setting_id ? template.service_setting_id : '0', 10);
+                var templateLogicKey = String(template && template.observance_logic_key ? template.observance_logic_key : '').trim().toLowerCase();
                 var templateName = String(template && template.observance_name ? template.observance_name : '').trim().toLowerCase();
-                var observanceMatches = observanceId > 0 ? templateObservanceId === observanceId : (observanceName !== '' && templateName === observanceName);
+                var observanceMatches = (observanceLogicKey !== '' && templateLogicKey === observanceLogicKey)
+                    || (observanceId > 0 && templateObservanceId === observanceId)
+                    || (observanceName !== '' && templateName === observanceName);
                 var serviceMatches = templateSettingId === serviceSettingId;
 
                 if (observanceMatches) {

@@ -236,6 +236,22 @@ function oflc_update_normalize_stanza_text($value): string
     return trim($value);
 }
 
+function oflc_update_hymn_rows_match(array $leftRows, array $rightRows): bool
+{
+    $normalizeRows = static function (array $rows): array {
+        return array_values(array_map(static function (array $row): array {
+            return [
+                'hymn_id' => (int) ($row['hymn_id'] ?? 0),
+                'slot_id' => (int) ($row['slot_id'] ?? 0),
+                'sort_order' => (int) ($row['sort_order'] ?? 0),
+                'stanzas' => oflc_update_normalize_stanza_text($row['stanzas'] ?? ''),
+            ];
+        }, $rows));
+    };
+
+    return $normalizeRows($leftRows) === $normalizeRows($rightRows);
+}
+
 function oflc_update_request_stanza_map(array $data, string $key): array
 {
     $value = $data[$key] ?? [];
@@ -851,6 +867,7 @@ function oflc_update_build_observance_catalog_payload(array $detailsById): array
         $payload['by_id'][$observanceId] = [
             'id' => $observanceId,
             'name' => $name,
+            'logic_key' => trim((string) ($detail['observance']['logic_key'] ?? '')),
             'latin_name' => trim((string) ($detail['observance']['latin_name'] ?? '')),
             'color_display' => oflc_update_get_liturgical_color_display($detail['observance']['liturgical_color'] ?? null),
             'color_class' => oflc_update_get_liturgical_color_text_class($detail['observance']['liturgical_color'] ?? null),
@@ -1918,12 +1935,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
 
     $pairThursdayId = isset($_POST['pair_thursday_id']) ? (int) $_POST['pair_thursday_id'] : 0;
     $pairSundayId = isset($_POST['pair_sunday_id']) ? (int) $_POST['pair_sunday_id'] : 0;
-    $hasPairCandidate = $pairThursdayId > 0 && $pairSundayId > 0;
+    $hasExistingThursday = $pairThursdayId > 0;
     $originalCopyState = isset($_POST['original_copy_to_previous_thursday']) && (string) $_POST['original_copy_to_previous_thursday'] === '1';
     $currentCopyState = $submittedState['copy_to_previous_thursday'];
-    $isPairEditor = $hasPairCandidate && ($serviceId === $pairSundayId || $serviceId === $pairThursdayId);
+    $isPairEditor = $pairSundayId > 0 && $serviceId === $pairSundayId;
     $shouldLinkPair = false;
     $shouldUnlinkPair = false;
+    $shouldCreateThursdayMirror = false;
 
     if ($isPairEditor) {
         if ($originalCopyState && !$currentCopyState) {
@@ -1937,6 +1955,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 $errors[] = 'Choose whether to unite Thursday with Sunday.';
             } else {
                 $shouldLinkPair = true;
+                $shouldCreateThursdayMirror = !$hasExistingThursday;
             }
         }
     }
@@ -1954,6 +1973,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     $servicePlaceholders = implode(', ', array_fill(0, count($targetServiceIds), '?'));
 
     $targetServiceDates = [];
+    $newThursdayServiceDate = null;
     if ($errors === [] && $serviceDateObject instanceof DateTimeImmutable && $serviceRowsById !== []) {
         if (count($targetServiceIds) === 2) {
             $submittedWeekday = $serviceDateObject->format('w');
@@ -1982,6 +2002,13 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
             }
         } else {
             $targetServiceDates[$serviceId] = $serviceDateObject->format('Y-m-d');
+            if ($shouldCreateThursdayMirror) {
+                if ($serviceDateObject->format('w') !== '0') {
+                    $errors[] = 'A Thursday mirror can only be created from a Sunday service.';
+                } else {
+                    $newThursdayServiceDate = $serviceDateObject->modify('-3 days')->format('Y-m-d');
+                }
+            }
         }
 
         if ($errors === []) {
@@ -1994,6 +2021,20 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                     $errors[] = 'Another active service already uses one of those dates and orders.';
                     break;
                 }
+            }
+            if (
+                $errors === []
+                && $shouldCreateThursdayMirror
+                && $newThursdayServiceDate !== null
+                && isset($serviceRowsById[$pairSundayId])
+                && oflc_service_db_has_active_service_conflict(
+                    $pdo,
+                    $newThursdayServiceDate,
+                    (int) ($serviceRowsById[$pairSundayId]['service_order'] ?? 1),
+                    [$pairSundayId]
+                )
+            ) {
+                $errors[] = 'A Thursday service already exists for that date and order. Refresh the list and try again.';
             }
         }
     }
@@ -2087,37 +2128,6 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         ];
     }
 
-    if ($shouldLinkPair) {
-        $otherServiceId = $serviceId === $pairThursdayId ? $pairSundayId : $pairThursdayId;
-        $otherHymnRowsByService = oflc_service_db_fetch_update_hymn_rows_by_service($pdo, [$otherServiceId]);
-        $otherHymnRows = $otherHymnRowsByService[$otherServiceId] ?? [];
-        $primaryHymnIds = [];
-        foreach ($hymnEntries as $entry) {
-            $primaryHymnIds[(int) ($entry['hymn_id'] ?? 0)] = true;
-        }
-
-        if ($otherHymnRows !== [] && !isset($hymnSlots['Other Hymn']['id'])) {
-            $errors[] = 'Missing hymn slot configuration for Other Hymn.';
-        }
-
-        if (isset($hymnSlots['Other Hymn']['id'])) {
-            foreach ($otherHymnRows as $otherHymnRow) {
-                $otherHymnId = (int) ($otherHymnRow['hymn_id'] ?? 0);
-                if ($otherHymnId <= 0 || isset($primaryHymnIds[$otherHymnId])) {
-                    continue;
-                }
-
-                $hymnEntries[] = [
-                    'hymn_id' => $otherHymnId,
-                    'slot_id' => (int) $hymnSlots['Other Hymn']['id'],
-                    'sort_order' => count($hymnEntries) + 1,
-                    'stanzas' => oflc_update_normalize_stanza_text($otherHymnRow['stanzas'] ?? ''),
-                ];
-                $primaryHymnIds[$otherHymnId] = true;
-            }
-        }
-    }
-
     if ($errors === []) {
         $updateDate = (new DateTimeImmutable('today'))->format('Y-m-d');
 
@@ -2197,6 +2207,29 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 oflc_service_db_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $updateDate);
                 oflc_service_db_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $updateDate);
                 oflc_service_db_insert_hymn_usage_rows($pdo, $targetRowId, $hymnEntries, $updateDate, $nextVersion);
+            }
+
+            if ($shouldCreateThursdayMirror && $newThursdayServiceDate !== null) {
+                $sundayServiceRow = $serviceRowsById[$pairSundayId] ?? null;
+                if (!is_array($sundayServiceRow)) {
+                    throw new RuntimeException('Unable to find the Sunday service for the Thursday mirror.');
+                }
+
+                $newThursdayServiceId = oflc_service_db_insert_service($pdo, [
+                    'service_date' => $newThursdayServiceDate,
+                    'liturgical_calendar_id' => (int) ($persistedObservanceDetail['observance']['id'] ?? 0) ?: null,
+                    'passion_reading_id' => $passionReadingId,
+                    'small_catechism_id' => $smallCatechismId,
+                    'selected_reading_set_id' => $persistedSelectedReadingSetId,
+                    'service_setting_id' => $serviceSettingId !== '' ? (int) $serviceSettingId : null,
+                    'leader_id' => $hasExplicitThursdayLeader ? $thursdayLeaderId : $leaderId,
+                    'service_order' => (int) ($sundayServiceRow['service_order'] ?? 1),
+                    'copied_from_service_id' => $pairSundayId,
+                    'last_updated' => $updateDate,
+                ]);
+                oflc_service_db_insert_service_small_catechism_links($pdo, $newThursdayServiceId, $smallCatechismIds, $updateDate);
+                oflc_service_db_insert_service_passion_reading_links($pdo, $newThursdayServiceId, $passionReadingIds, $updateDate);
+                oflc_service_db_insert_hymn_usage_rows($pdo, $newThursdayServiceId, $hymnEntries, $updateDate);
             }
 
             $pdo->commit();
@@ -2486,6 +2519,14 @@ include 'includes/header.php';
                                 }
                             }
                         }
+                        if (!$showPreviousThursdayToggle && is_array($displayService)) {
+                            $displayDateObject = oflc_update_get_service_date_object($displayService);
+                            if ($displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '0') {
+                                $showPreviousThursdayToggle = true;
+                                $originalCopyToPreviousThursday = false;
+                                $sundayService = $displayService;
+                            }
+                        }
                         $defaultSettingDetail = isset($serviceSettingsById[(string) ($displayService['service_setting_id'] ?? '')])
                             ? $serviceSettingsById[(string) $displayService['service_setting_id']]
                             : null;
@@ -2496,8 +2537,10 @@ include 'includes/header.php';
                             $hymnSlots,
                             $smallCatechismLabelsByService[$serviceId] ?? []
                         );
-                        if ($originalCopyToPreviousThursday && is_array($thursdayService)) {
+                        if ($showPreviousThursdayToggle && is_array($thursdayService)) {
                             $baseFormState['thursday_preacher'] = trim((string) ($thursdayService['leader_last_name'] ?? ''));
+                        }
+                        if ($originalCopyToPreviousThursday && is_array($thursdayService)) {
                             if ($baseFormState['selected_reading_set_id'] === '') {
                                 $baseFormState['selected_reading_set_id'] = trim((string) ($thursdayService['selected_reading_set_id'] ?? ''));
                             }
@@ -2580,6 +2623,15 @@ include 'includes/header.php';
                             : '';
                         $copyServiceLabel = null;
                         $copyServiceToggleText = '';
+                        $thursdayHymnsDiffer = false;
+                        if (is_array($thursdayService) && is_array($sundayService)) {
+                            $thursdayServiceId = (int) ($thursdayService['id'] ?? 0);
+                            $sundayServiceId = (int) ($sundayService['id'] ?? 0);
+                            $thursdayHymnsDiffer = !oflc_update_hymn_rows_match(
+                                $hymnRowsByService[$thursdayServiceId] ?? [],
+                                $hymnRowsByService[$sundayServiceId] ?? []
+                            );
+                        }
                         if ($showPreviousThursdayToggle) {
                             $displayDateObject = is_array($displayService) ? oflc_update_get_service_date_object($displayService) : null;
                             $linkTargetService = $displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '4'
@@ -2600,6 +2652,9 @@ include 'includes/header.php';
                                             : 'Combine service with preceding Thursday';
                                     }
                                 }
+                            } elseif ($displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '0') {
+                                $copyServiceLabel = $displayDateObject->modify('-3 days')->format('m/d');
+                                $copyServiceToggleText = 'Copy this service to the previous Thursday';
                             }
                         }
                         $selectedObservanceName = trim((string) ($formState['observance_name'] ?? ''));
@@ -2663,8 +2718,8 @@ include 'includes/header.php';
                                     ENT_QUOTES,
                                     'UTF-8'
                                 ); ?>">
-                                <?php if ($showPreviousThursdayToggle && is_array($thursdayService) && is_array($sundayService)): ?>
-                                    <input type="hidden" name="pair_thursday_id" value="<?php echo (int) ($thursdayService['id'] ?? 0); ?>">
+                                <?php if ($showPreviousThursdayToggle && is_array($sundayService)): ?>
+                                    <input type="hidden" name="pair_thursday_id" value="<?php echo is_array($thursdayService) ? (int) ($thursdayService['id'] ?? 0) : 0; ?>">
                                     <input type="hidden" name="pair_sunday_id" value="<?php echo (int) ($sundayService['id'] ?? 0); ?>">
                                     <input type="hidden" name="original_copy_to_previous_thursday" value="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>">
                                     <input type="hidden" name="link_action" value="<?php echo htmlspecialchars($linkAction, ENT_QUOTES, 'UTF-8'); ?>" class="js-link-action-flag">
@@ -2717,6 +2772,7 @@ include 'includes/header.php';
                                             value="1"
                                             class="js-copy-to-previous-thursday"
                                             data-original-copy="<?php echo $originalCopyToPreviousThursday ? '1' : '0'; ?>"
+                                            data-thursday-hymns-differ="<?php echo $thursdayHymnsDiffer ? '1' : '0'; ?>"
                                             <?php echo $copyToPreviousThursday ? 'checked' : ''; ?>
                                         >
                                         <span><?php echo htmlspecialchars($copyServiceToggleText, ENT_QUOTES, 'UTF-8'); ?> (<?php echo htmlspecialchars($copyServiceLabel, ENT_QUOTES, 'UTF-8'); ?>)?</span>
@@ -2754,7 +2810,7 @@ include 'includes/header.php';
                                 $plannerFillHymnsHtml = ob_get_clean();
 
                                 ob_start();
-                                if ($originalCopyToPreviousThursday):
+                                if ($showPreviousThursdayToggle):
                                 ?>
                                     <label class="service-card-label" for="thursday_preacher_<?php echo $serviceId; ?>">Thursday</label>
                                     <div class="service-card-suggestion-anchor">
@@ -2771,7 +2827,7 @@ include 'includes/header.php';
                                         >
                                     </div>
                                 <?php endif; ?>
-                                <label class="service-card-label" for="preacher_<?php echo $serviceId; ?>"><?php echo $originalCopyToPreviousThursday ? 'Sunday' : 'Leader'; ?></label>
+                                <label class="service-card-label" for="preacher_<?php echo $serviceId; ?>"><?php echo $showPreviousThursdayToggle ? 'Sunday' : 'Leader'; ?></label>
                                 <div class="service-card-suggestion-anchor">
                                     <input
                                         type="text"
@@ -4971,6 +5027,7 @@ include 'includes/header.php';
             var serviceSettingDetail = findServiceSettingDetailByName(serviceSettingInput ? serviceSettingInput.value : '');
             var currentSelectedId = String(fillHymnsIdInput && fillHymnsIdInput.value ? fillHymnsIdInput.value : '');
             var observanceId = matchingObservance && matchingObservance.id ? parseInt(matchingObservance.id, 10) : 0;
+            var observanceLogicKey = String(matchingObservance && matchingObservance.logic_key ? matchingObservance.logic_key : '').trim().toLowerCase();
             var observanceName = String(observanceNameInput && observanceNameInput.value ? observanceNameInput.value : '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
             var serviceSettingId = serviceSettingDetail && serviceSettingDetail.id ? parseInt(serviceSettingDetail.id, 10) : 0;
             var hasSelectedService = serviceSettingId > 0;
@@ -4986,11 +5043,13 @@ include 'includes/header.php';
                 hymnFillTemplates.forEach(function (template) {
                     var templateObservanceId = parseInt(template && template.liturgical_calendar_id ? template.liturgical_calendar_id : '0', 10);
                     var templateSettingId = parseInt(template && template.service_setting_id ? template.service_setting_id : '0', 10);
+                    var templateLogicKey = String(template && template.observance_logic_key ? template.observance_logic_key : '').trim().toLowerCase();
                     var templateName = String(template && template.observance_name ? template.observance_name : '').trim().toLowerCase();
                     var templateId = String(template && template.id ? template.id : '');
                     var currentServiceId = String(serviceIdValue || '');
                     var templateLabelKey = String(template && template.label ? template.label : '').toLowerCase();
-                    var observanceMatches = (observanceId > 0 && templateObservanceId === observanceId)
+                    var observanceMatches = (observanceLogicKey !== '' && templateLogicKey === observanceLogicKey)
+                        || (observanceId > 0 && templateObservanceId === observanceId)
                         || (observanceName !== '' && templateName === observanceName);
                     var serviceMatches = templateSettingId === serviceSettingId;
 
@@ -5558,14 +5617,20 @@ include 'includes/header.php';
             return !!(previousThursdayToggle && previousThursdayToggle.getAttribute('data-original-copy') === '1');
         }
 
+        function requiresThursdayHymnWarning() {
+            return !!(previousThursdayToggle && previousThursdayToggle.getAttribute('data-thursday-hymns-differ') === '1');
+        }
+
         function setAlertMessage() {
             if (!separateThursdayAlertTitle || !previousThursdayToggle) {
                 return;
             }
 
             separateThursdayAlertTitle.textContent = getOriginalCopyState()
-                ? 'Would you like to separate Thursday from Sunday?'
-                : 'Would you like to unite Thursday with Sunday?';
+                ? 'Would you like to separate Thursday from Sunday? Thursday will be separated with all of Sunday’s saved content.'
+                : (requiresThursdayHymnWarning()
+                    ? 'Thursday has different hymns. Merging will delete all Thursday hymns and replace them with Sunday’s hymns. Continue?'
+                    : 'Would you like to unite Thursday with Sunday?');
         }
 
         function syncPreviousThursdayState() {
@@ -5575,6 +5640,12 @@ include 'includes/header.php';
 
             if (previousThursdayToggle.checked === getOriginalCopyState()) {
                 linkActionFlag.value = '';
+                hideSeparateThursdayAlert();
+                return;
+            }
+
+            if (!getOriginalCopyState() && previousThursdayToggle.checked && !requiresThursdayHymnWarning()) {
+                linkActionFlag.value = 'link';
                 hideSeparateThursdayAlert();
                 return;
             }
@@ -6038,6 +6109,7 @@ include 'includes/header.php';
         var separateThursdayAlert;
         var separateThursdayAlertTitle;
         var originalCopyState;
+        var thursdayHymnsDiffer;
 
         if (!form) {
             return;
@@ -6055,11 +6127,17 @@ include 'includes/header.php';
 
         if (previousThursdayToggle && linkActionFlag) {
             originalCopyState = previousThursdayToggle.getAttribute('data-original-copy') === '1';
+            thursdayHymnsDiffer = previousThursdayToggle.getAttribute('data-thursday-hymns-differ') === '1';
             if (previousThursdayToggle.checked !== originalCopyState && String(linkActionFlag.value || '').trim() === '') {
+                if (!originalCopyState && previousThursdayToggle.checked && !thursdayHymnsDiffer) {
+                    linkActionFlag.value = 'link';
+                    requestUpdateServiceSave(form);
+                    return;
+                }
                 if (separateThursdayAlertTitle) {
                     separateThursdayAlertTitle.textContent = originalCopyState
-                        ? 'Would you like to separate Thursday from Sunday?'
-                        : 'Would you like to unite Thursday with Sunday?';
+                        ? 'Would you like to separate Thursday from Sunday? Thursday will be separated with all of Sunday’s saved content.'
+                        : 'Thursday has different hymns. Merging will delete all Thursday hymns and replace them with Sunday’s hymns. Continue?';
                 }
                 if (separateThursdayAlert) {
                     separateThursdayAlert.classList.add('is-visible');

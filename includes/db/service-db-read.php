@@ -396,6 +396,7 @@ function oflc_service_db_fetch_hymn_fill_templates(
             s.liturgical_calendar_id,
             s.copied_from_service_id,
             lc.name AS observance_name,
+            lc.logic_key AS observance_logic_key,
             hu.hymn_id,
             hu.sort_order,
             hs.slot_name,
@@ -435,6 +436,7 @@ function oflc_service_db_fetch_hymn_fill_templates(
                 'service_setting_id' => (int) ($row['service_setting_id'] ?? 0),
                 'liturgical_calendar_id' => (int) ($row['liturgical_calendar_id'] ?? 0),
                 'observance_name' => $observanceName,
+                'observance_logic_key' => trim((string) ($row['observance_logic_key'] ?? '')),
                 'label' => trim($observanceName . ' ' . $serviceYear),
                 'usage_rows' => [],
             ];
