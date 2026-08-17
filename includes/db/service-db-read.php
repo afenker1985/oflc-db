@@ -883,7 +883,7 @@ function oflc_service_db_fetch_active_service_rows_by_id(PDO $pdo, array $servic
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, service_date, service_order, leader_id, copied_from_service_id
+        'SELECT id, service_date, service_order, liturgical_calendar_id, leader_id, copied_from_service_id
          FROM service_db
          WHERE id IN (' . implode(', ', array_fill(0, count($serviceIds), '?')) . ')
            AND is_active = 1'

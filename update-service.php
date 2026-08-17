@@ -1729,6 +1729,14 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         $errors[] = 'That service could not be found.';
     }
 
+    $canPreserveUnassignedObservance = $serviceRowsById !== [];
+    foreach ($serviceRowsById as $serviceRow) {
+        if ((int) ($serviceRow['liturgical_calendar_id'] ?? 0) > 0) {
+            $canPreserveUnassignedObservance = false;
+            break;
+        }
+    }
+
     $serviceDateObject = oflc_update_parse_filter_date($submittedState['service_date']);
     if (!$serviceDateObject instanceof DateTimeImmutable) {
         $errors[] = 'Service date must use YYYY-MM-DD.';
@@ -1749,12 +1757,14 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     }
 
     $createObservanceName = '';
-    if ($observanceName === '') {
+    if ($observanceName === '' && !$canPreserveUnassignedObservance) {
         $errors[] = 'Enter a liturgical observance.';
     } elseif ($observanceDetail === null) {
-        $createObservanceName = $observanceName;
-        if (!oflc_is_valid_liturgical_color($submittedState['new_observance_color'])) {
-            $errors[] = 'Select a liturgical color for the new observance.';
+        if ($observanceName !== '') {
+            $createObservanceName = $observanceName;
+            if (!oflc_is_valid_liturgical_color($submittedState['new_observance_color'])) {
+                $errors[] = 'Select a liturgical color for the new observance.';
+            }
         }
     }
 
@@ -2118,37 +2128,39 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 $persistedObservanceDetail = oflc_service_fetch_observance_detail_by_id($pdo, $createdObservanceId);
             }
 
-            if ($persistedObservanceDetail === null) {
+            if ($persistedObservanceDetail === null && !$canPreserveUnassignedObservance) {
                 throw new RuntimeException('Unable to resolve observance.');
             }
 
-            oflc_service_store_midweek_observance_year(
-                $pdo,
-                (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
-                trim((string) ($persistedObservanceDetail['observance']['name'] ?? $createObservanceName)),
-                $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
-            );
-
             $insertedReadingSetIds = [];
-            if (count($persistedObservanceDetail['reading_sets'] ?? []) === 0) {
-                $insertedReadingSetIds = oflc_service_insert_new_reading_set_drafts(
+            if ($persistedObservanceDetail !== null) {
+                oflc_service_store_midweek_observance_year(
                     $pdo,
                     (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
-                    $submittedState['new_reading_sets']
+                    trim((string) ($persistedObservanceDetail['observance']['name'] ?? $createObservanceName)),
+                    $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
                 );
-                if ($insertedReadingSetIds !== []) {
-                    $persistedObservanceDetail = oflc_service_fetch_observance_detail_by_id(
+
+                if (count($persistedObservanceDetail['reading_sets'] ?? []) === 0) {
+                    $insertedReadingSetIds = oflc_service_insert_new_reading_set_drafts(
                         $pdo,
-                        (int) ($persistedObservanceDetail['observance']['id'] ?? 0)
-                    ) ?? $persistedObservanceDetail;
+                        (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
+                        $submittedState['new_reading_sets']
+                    );
+                    if ($insertedReadingSetIds !== []) {
+                        $persistedObservanceDetail = oflc_service_fetch_observance_detail_by_id(
+                            $pdo,
+                            (int) ($persistedObservanceDetail['observance']['id'] ?? 0)
+                        ) ?? $persistedObservanceDetail;
+                    }
+                } elseif ($hasDraftReadings && is_array($draftOne) && $selectedReadingSetId !== null) {
+                    oflc_service_db_update_existing_reading_set(
+                        $pdo,
+                        $selectedReadingSetId,
+                        (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
+                        $draftOne
+                    );
                 }
-            } elseif ($hasDraftReadings && is_array($draftOne) && $selectedReadingSetId !== null) {
-                oflc_service_db_update_existing_reading_set(
-                    $pdo,
-                    $selectedReadingSetId,
-                    (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
-                    $draftOne
-                );
             }
 
             $persistedSelectedReadingSetId = $selectedReadingSetId;
@@ -5986,13 +5998,19 @@ include 'includes/header.php';
             }
 
             return response.text();
-        }).then(function () {
-            requestUpdateService(buildPostSaveRefreshUrl(form), {
-                preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
-                preserveSearchFocus: false,
-                reapplySearchFilter: false,
-                unhideRows: true
-            });
+        }).then(function (html) {
+            var serviceIdInput = form.querySelector('input[name="service_id"]');
+            var serviceId = serviceIdInput ? String(serviceIdInput.value || '') : '';
+            var refreshUrl = buildPostSaveRefreshUrl(form);
+
+            if (!syncUpdatedServiceRowFromHtml(html, serviceId)) {
+                syncUpdateServiceRoot(html, refreshUrl, {
+                    preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
+                    preserveSearchFocus: false,
+                    reapplySearchFilter: false,
+                    unhideRows: true
+                });
+            }
         }).catch(function (error) {
             if (error && error.name === 'AbortError') {
                 return;
