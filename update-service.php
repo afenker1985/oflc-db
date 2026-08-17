@@ -2139,40 +2139,22 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                 throw new RuntimeException('Unable to resolve observance.');
             }
 
-            $insertedReadingSetIds = [];
+            $persistedSelectedReadingSetId = $selectedReadingSetId;
             if ($persistedObservanceDetail !== null) {
+                $persistedObservanceId = (int) ($persistedObservanceDetail['observance']['id'] ?? 0);
                 oflc_service_store_midweek_observance_year(
                     $pdo,
-                    (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
+                    $persistedObservanceId,
                     trim((string) ($persistedObservanceDetail['observance']['name'] ?? $createObservanceName)),
                     $serviceDateObject instanceof DateTimeImmutable ? $serviceDateObject : null
                 );
-
-                if (count($persistedObservanceDetail['reading_sets'] ?? []) === 0) {
-                    $insertedReadingSetIds = oflc_service_insert_new_reading_set_drafts(
-                        $pdo,
-                        (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
-                        $submittedState['new_reading_sets']
-                    );
-                    if ($insertedReadingSetIds !== []) {
-                        $persistedObservanceDetail = oflc_service_fetch_observance_detail_by_id(
-                            $pdo,
-                            (int) ($persistedObservanceDetail['observance']['id'] ?? 0)
-                        ) ?? $persistedObservanceDetail;
-                    }
-                } elseif ($hasSubmittedReadingDraft && is_array($draftOne) && $selectedReadingSetId !== null) {
-                    oflc_service_db_update_existing_reading_set(
-                        $pdo,
-                        $selectedReadingSetId,
-                        (int) ($persistedObservanceDetail['observance']['id'] ?? 0),
-                        $draftOne
-                    );
-                }
-            }
-
-            $persistedSelectedReadingSetId = $selectedReadingSetId;
-            if ($persistedSelectedReadingSetId === null && count($insertedReadingSetIds) === 1) {
-                $persistedSelectedReadingSetId = (int) reset($insertedReadingSetIds);
+                $persistedSelectedReadingSetId = oflc_service_db_save_observance_reading_set(
+                    $pdo,
+                    $persistedObservanceId,
+                    $selectedReadingSetId,
+                    is_array($draftOne) ? $draftOne : [],
+                    $hasSubmittedReadingDraft
+                );
             }
 
             foreach ($targetServiceIds as $targetRowId) {
@@ -2689,7 +2671,10 @@ include 'includes/header.php';
                                 <?php endif; ?>
                                 <?php
                                 $readingHtml = '&nbsp;';
-                                $allowReadingEditor = $showSmallCatechismDropdown || $showPassionReadingDropdown;
+                                $selectedServiceAbbreviation = strtolower(trim((string) ($selectedServiceSettingDetail['abbreviation'] ?? '')));
+                                $allowReadingEditor = $showSmallCatechismDropdown
+                                    || $showPassionReadingDropdown
+                                    || $selectedServiceAbbreviation === 'vespers';
                                 $selectedReadingSets = $selectedOptionDetail['reading_sets'] ?? [];
 
                                 if ($selectedOptionDetail !== null || $selectedObservanceName !== '') {
@@ -3640,6 +3625,12 @@ include 'includes/header.php';
             }
 
             return serviceSettingCatalog.by_id[serviceSettingId];
+        }
+
+        function serviceSettingAllowsReadingEditor() {
+            var detail = findServiceSettingDetailByName(serviceSettingInput ? serviceSettingInput.value : '');
+
+            return !!detail && String(detail.abbreviation || '').trim().toLowerCase() === 'vespers';
         }
 
         function getServiceSettingSuggestionSource(preferAllSuggestions) {
@@ -5358,7 +5349,9 @@ include 'includes/header.php';
             var html = '<div class="update-service-reading-editor-note">No appointed readings are stored for this observance yet.</div>';
             var normalizedDrafts = cloneReadingDrafts(readingDraftState);
             var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
-            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName);
+            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName)
+                || isLentMidweekObservanceName(activeObservanceName)
+                || serviceSettingAllowsReadingEditor();
 
             if (!readingsPane) {
                 return;
@@ -5418,7 +5411,9 @@ include 'includes/header.php';
             var defaultReadingSetId = '';
             var readingEditorDraft;
             var activeObservanceName = String(observanceNameInput ? observanceNameInput.value : '').trim();
-            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName) || isLentMidweekObservanceName(activeObservanceName);
+            var allowReadingEditor = isAdventMidweekObservanceName(activeObservanceName)
+                || isLentMidweekObservanceName(activeObservanceName)
+                || serviceSettingAllowsReadingEditor();
 
             if (!readingsPane) {
                 return;
@@ -6026,12 +6021,7 @@ include 'includes/header.php';
                 return;
             }
 
-            requestUpdateService(refreshUrl, {
-                    preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
-                    preserveSearchFocus: false,
-                    reapplySearchFilter: false,
-                    unhideRows: true
-            });
+            window.location.href = refreshUrl;
         }).catch(function (error) {
             if (error && error.name === 'AbortError') {
                 return;

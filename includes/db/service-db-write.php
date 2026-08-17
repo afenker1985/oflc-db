@@ -123,6 +123,64 @@ function oflc_service_db_update_existing_reading_set(PDO $pdo, int $readingSetId
     ]);
 }
 
+// Creates or updates the submitted reading set for an observance and returns its id.
+function oflc_service_db_save_observance_reading_set(
+    PDO $pdo,
+    int $liturgicalCalendarId,
+    ?int $readingSetId,
+    array $draft,
+    bool $wasSubmitted
+): ?int {
+    if ($liturgicalCalendarId <= 0 || !$wasSubmitted) {
+        return $readingSetId;
+    }
+
+    if ($readingSetId !== null && $readingSetId > 0) {
+        oflc_service_db_update_existing_reading_set($pdo, $readingSetId, $liturgicalCalendarId, $draft);
+
+        return $readingSetId;
+    }
+
+    $values = [
+        'psalm' => trim((string) ($draft['psalm'] ?? '')),
+        'old_testament' => trim((string) ($draft['old_testament'] ?? '')),
+        'epistle' => trim((string) ($draft['epistle'] ?? '')),
+        'gospel' => trim((string) ($draft['gospel'] ?? '')),
+    ];
+    if (!array_filter($values, static function (string $value): bool {
+        return $value !== '';
+    })) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO reading_sets (
+            liturgical_calendar_id,
+            old_testament,
+            psalm,
+            epistle,
+            gospel,
+            is_active
+         ) VALUES (
+            :liturgical_calendar_id,
+            :old_testament,
+            :psalm,
+            :epistle,
+            :gospel,
+            1
+         )'
+    );
+    $stmt->execute([
+        ':liturgical_calendar_id' => $liturgicalCalendarId,
+        ':old_testament' => $values['old_testament'] !== '' ? $values['old_testament'] : null,
+        ':psalm' => $values['psalm'] !== '' ? $values['psalm'] : null,
+        ':epistle' => $values['epistle'] !== '' ? $values['epistle'] : null,
+        ':gospel' => $values['gospel'] !== '' ? $values['gospel'] : null,
+    ]);
+
+    return (int) $pdo->lastInsertId();
+}
+
 // Returns the next service order for a date, preserving existing inactive rows.
 function oflc_service_db_get_next_service_order(PDO $pdo, string $serviceDate): int
 {
