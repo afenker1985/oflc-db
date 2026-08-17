@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Inserts active Small Catechism selections for a service in the submitted order.
+// Inserts or reactivates Small Catechism selections for a service in the submitted order.
 function oflc_service_db_insert_service_small_catechism_links(PDO $pdo, int $serviceId, array $smallCatechismIds, string $today): void
 {
     if ($serviceId <= 0 || $smallCatechismIds === []) {
@@ -23,7 +23,11 @@ function oflc_service_db_insert_service_small_catechism_links(PDO $pdo, int $ser
             :created_at,
             :last_updated,
             1
-         )'
+         )
+         ON DUPLICATE KEY UPDATE
+            sort_order = VALUES(sort_order),
+            last_updated = VALUES(last_updated),
+            is_active = 1'
     );
 
     foreach (array_values($smallCatechismIds) as $index => $smallCatechismId) {

@@ -2112,7 +2112,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
     }
 
     if ($errors === []) {
-        $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+        $updateDate = (new DateTimeImmutable('today'))->format('Y-m-d');
 
         try {
             $pdo->beginTransaction();
@@ -2198,16 +2198,16 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
                     'service_setting_id' => $serviceSettingId !== '' ? (int) $serviceSettingId : null,
                     'leader_id' => $targetLeaderId,
                     'copied_from_service_id' => $copiedFromServiceId,
-                    'last_updated' => $today,
+                    'last_updated' => $updateDate,
                 ]);
 
                 $nextVersion = oflc_service_db_fetch_next_hymn_usage_version($pdo, $targetRowId);
-                oflc_service_db_deactivate_hymn_usage($pdo, $targetRowId, $today);
-                oflc_service_db_deactivate_service_small_catechism_links($pdo, $targetRowId, $today);
-                oflc_service_db_deactivate_service_passion_reading_links($pdo, $targetRowId, $today);
-                oflc_service_db_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $today);
-                oflc_service_db_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $today);
-                oflc_service_db_insert_hymn_usage_rows($pdo, $targetRowId, $hymnEntries, $today, $nextVersion);
+                oflc_service_db_deactivate_hymn_usage($pdo, $targetRowId, $updateDate);
+                oflc_service_db_deactivate_service_small_catechism_links($pdo, $targetRowId, $updateDate);
+                oflc_service_db_deactivate_service_passion_reading_links($pdo, $targetRowId, $updateDate);
+                oflc_service_db_insert_service_small_catechism_links($pdo, $targetRowId, $smallCatechismIds, $updateDate);
+                oflc_service_db_insert_service_passion_reading_links($pdo, $targetRowId, $passionReadingIds, $updateDate);
+                oflc_service_db_insert_hymn_usage_rows($pdo, $targetRowId, $hymnEntries, $updateDate, $nextVersion);
             }
 
             $pdo->commit();
@@ -5999,18 +5999,32 @@ include 'includes/header.php';
 
             return response.text();
         }).then(function (html) {
+            var parser = new DOMParser();
+            var responseDocument = parser.parseFromString(html, 'text/html');
             var serviceIdInput = form.querySelector('input[name="service_id"]');
             var serviceId = serviceIdInput ? String(serviceIdInput.value || '') : '';
             var refreshUrl = buildPostSaveRefreshUrl(form);
+            var responseWrap = responseDocument.getElementById('service-' + serviceId);
+            var hasValidationError = !!(responseWrap && responseWrap.querySelector('.planning-error'));
 
-            if (!syncUpdatedServiceRowFromHtml(html, serviceId)) {
-                syncUpdateServiceRoot(html, refreshUrl, {
+            if (hasValidationError) {
+                if (!syncUpdatedServiceRowFromHtml(html, serviceId)) {
+                    syncUpdateServiceRoot(html, refreshUrl, {
+                        preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
+                        preserveSearchFocus: false,
+                        reapplySearchFilter: false,
+                        unhideRows: true
+                    });
+                }
+                return;
+            }
+
+            requestUpdateService(refreshUrl, {
                     preserveSearchValue: searchInput ? String(searchInput.value || '') : '',
                     preserveSearchFocus: false,
                     reapplySearchFilter: false,
                     unhideRows: true
-                });
-            }
+            });
         }).catch(function (error) {
             if (error && error.name === 'AbortError') {
                 return;
