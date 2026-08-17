@@ -1964,6 +1964,8 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         $targetServiceIds = $originalCopyState || $shouldLinkPair || $shouldUnlinkPair
             ? [$pairThursdayId, $pairSundayId]
             : [$serviceId];
+    } else {
+        $targetServiceIds = [$serviceId];
     }
 
     $targetServiceIds = array_values(array_unique(array_filter($targetServiceIds, static function (int $value): bool {
@@ -2509,13 +2511,16 @@ include 'includes/header.php';
                         $thursdayService = $editTarget['thursday_service'] ?? null;
                         $sundayService = $editTarget['sunday_service'] ?? null;
                         if (!$showPreviousThursdayToggle && is_array($displayService)) {
-                            $pairCandidate = $pairCandidateByServiceId[(int) ($displayService['id'] ?? 0)] ?? null;
-                            if (is_array($pairCandidate)) {
-                                $thursdayService = $pairCandidate['thursday_service'] ?? null;
-                                $sundayService = $pairCandidate['sunday_service'] ?? null;
-                                if (is_array($thursdayService) && is_array($sundayService)) {
-                                    $showPreviousThursdayToggle = true;
-                                    $originalCopyToPreviousThursday = false;
+                            $displayDateObject = oflc_update_get_service_date_object($displayService);
+                            if ($displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '0') {
+                                $pairCandidate = $pairCandidateByServiceId[(int) ($displayService['id'] ?? 0)] ?? null;
+                                if (is_array($pairCandidate)) {
+                                    $thursdayService = $pairCandidate['thursday_service'] ?? null;
+                                    $sundayService = $pairCandidate['sunday_service'] ?? null;
+                                    if (is_array($thursdayService) && is_array($sundayService)) {
+                                        $showPreviousThursdayToggle = true;
+                                        $originalCopyToPreviousThursday = false;
+                                    }
                                 }
                             }
                         }
