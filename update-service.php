@@ -3594,6 +3594,7 @@ $serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observanc
                     returnSearchInput.value = String(searchInput.value || '');
                 }
 
+                updateObservanceDetails(true);
                 requestUpdateServicePreview(form, true, {
                     service_date: selection.serviceDate,
                     observance_name: selection.name,

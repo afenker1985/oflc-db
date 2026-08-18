@@ -2650,6 +2650,7 @@ window.oflcInitializePlannerUI = function (root) {
             if (previewServiceDateInput) {
                 previewServiceDateInput.value = selection.serviceDate;
             }
+            updateObservanceDetails(true);
             oflcSubmitPlannerPreview(form, true, {
                 service_date: selection.serviceDate,
                 preview_service_date: selection.serviceDate,
