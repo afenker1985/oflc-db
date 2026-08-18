@@ -74,6 +74,25 @@ function oflc_get_liturgical_window(string $date_string, int $days_before = 7, i
     ];
 }
 
+function oflc_can_pair_thursday_sunday_services(
+    DateTimeImmutable $thursdayDate,
+    DateTimeImmutable $sundayDate
+): bool {
+    if (
+        $thursdayDate->format('w') !== '4'
+        || $sundayDate->format('w') !== '0'
+        || (int) $thursdayDate->diff($sundayDate)->format('%r%a') !== 3
+    ) {
+        return false;
+    }
+
+    $thursday = oflc_get_liturgical_day($thursdayDate->format('Y-m-d'));
+
+    // A Thursday with its own observance (Ascension, Maundy Thursday, or a
+    // fixed-date feast) must remain independent from the following Sunday.
+    return is_array($thursday) && oflc_normalize_logic_keys($thursday['logic_keys'] ?? null) === [];
+}
+
 function oflc_normalize_logic_keys($value): array
 {
     if ($value === null) {

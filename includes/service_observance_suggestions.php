@@ -48,12 +48,16 @@ function oflc_service_build_observance_suggestion_lookup(array $serviceOptionCho
             ? $detailsByLogicKey[$logicKey]
             : null;
         $observanceId = (int) ($detail['observance']['id'] ?? 0);
+        $canonicalName = trim((string) ($detail['observance']['name'] ?? ''));
 
         if ($label === '' || $observanceId <= 0 || isset($lookup[$label])) {
             continue;
         }
 
         $lookup[$label] = $observanceId;
+        if ($canonicalName !== '' && !isset($lookup[$canonicalName])) {
+            $lookup[$canonicalName] = $observanceId;
+        }
     }
 
     return $lookup;

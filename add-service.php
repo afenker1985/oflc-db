@@ -266,6 +266,11 @@ function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
     $weekday = $serviceDate->format('w');
 
     if ($weekday === '0') {
+        $thursdayDate = $serviceDate->modify('-3 days');
+        if (!oflc_can_pair_thursday_sunday_services($thursdayDate, $serviceDate)) {
+            return null;
+        }
+
         return [
             'toggle_name' => 'copy_to_previous_thursday',
             'direction' => 'previous_thursday',
@@ -274,13 +279,18 @@ function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
             'primary_label' => 'Sunday',
             'secondary_label' => 'Thursday',
             'secondary_placeholder' => 'Blank = same as Sunday',
-            'secondary_date' => $serviceDate->modify('-3 days')->format('Y-m-d'),
-            'secondary_date_label' => $serviceDate->modify('-3 days')->format('m/d'),
+            'secondary_date' => $thursdayDate->format('Y-m-d'),
+            'secondary_date_label' => $thursdayDate->format('m/d'),
             'toggle_label' => 'Copy this service to the previous Thursday',
         ];
     }
 
     if ($weekday === '4') {
+        $sundayDate = $serviceDate->modify('+3 days');
+        if (!oflc_can_pair_thursday_sunday_services($serviceDate, $sundayDate)) {
+            return null;
+        }
+
         return [
             'toggle_name' => 'copy_to_upcoming_sunday',
             'direction' => 'upcoming_sunday',
@@ -289,8 +299,8 @@ function oflc_get_copy_service_config(?DateTimeImmutable $serviceDate): ?array
             'primary_label' => 'Thursday',
             'secondary_label' => 'Sunday',
             'secondary_placeholder' => 'Blank = same as Thursday',
-            'secondary_date' => $serviceDate->modify('+3 days')->format('Y-m-d'),
-            'secondary_date_label' => $serviceDate->modify('+3 days')->format('m/d'),
+            'secondary_date' => $sundayDate->format('Y-m-d'),
+            'secondary_date_label' => $sundayDate->format('m/d'),
             'toggle_label' => 'Copy this service to the upcoming Sunday',
         ];
     }
@@ -934,10 +944,8 @@ if ($selected_date !== '') {
                 $logic_keys_for_names[] = $logic_key;
             }
 
-            if ($entry['is_sunday']) {
-                foreach (oflc_resolve_movable_logic_keys($entry['week'], 0) as $logic_key) {
-                    $logic_keys_for_names[] = $logic_key;
-                }
+            foreach (oflc_resolve_movable_logic_keys($entry['week'], (int) $entry['weekday']) as $logic_key) {
+                $logic_keys_for_names[] = $logic_key;
             }
         }
         $logic_key_name_map = oflc_service_db_fetch_logic_key_name_map($pdo, $logic_keys_for_names);
@@ -964,22 +972,20 @@ if ($selected_date !== '') {
                 oflc_get_liturgical_entry_fixed_logic_keys($entry)
             );
 
-            if ($entry['is_sunday']) {
-                $liturgical_window['entries'][$index]['sunday_matches'] = oflc_service_db_fetch_observances_by_logic_keys(
-                    $pdo,
-                    oflc_resolve_movable_logic_keys($entry['week'], 0)
-                );
-            } else {
-                $liturgical_window['entries'][$index]['sunday_matches'] = [];
-            }
+            $liturgical_window['entries'][$index]['movable_matches'] = oflc_service_db_fetch_observances_by_logic_keys(
+                $pdo,
+                oflc_resolve_movable_logic_keys($entry['week'], (int) $entry['weekday'])
+            );
         }
 
         foreach ($liturgical_window['entries'] as $entry) {
-            foreach ($entry['sunday_matches'] as $observance) {
+            foreach ($entry['movable_matches'] as $observance) {
                 $combined_window_options[] = [
                     'date' => $entry['date'],
                     'sort_date' => $entry['date'],
-                    'label' => oflc_format_sunday_list_label($entry, $observance),
+                    'label' => $entry['is_sunday']
+                        ? oflc_format_sunday_list_label($entry, $observance)
+                        : oflc_format_festival_list_label($entry, $observance),
                 ];
             }
 
@@ -1003,7 +1009,11 @@ if ($selected_date !== '') {
         $feast_service_option_choices = [];
 
         foreach ($liturgical_window['entries'] as $entry) {
+            $movable_keys = oflc_resolve_movable_logic_keys($entry['week'], (int) $entry['weekday']);
             $festival_keys = oflc_get_liturgical_entry_fixed_logic_keys($entry);
+            if (!$entry['is_sunday']) {
+                $festival_keys = array_values(array_unique(array_merge($movable_keys, $festival_keys)));
+            }
             foreach ($festival_keys as $logic_key) {
                 $matching_festival = null;
                 foreach ($entry['fixed_matches'] as $observance) {
@@ -1032,8 +1042,7 @@ if ($selected_date !== '') {
             }
 
             if ($entry['is_sunday']) {
-                $sunday_keys = oflc_resolve_movable_logic_keys($entry['week'], 0);
-                foreach ($sunday_keys as $logic_key) {
+                foreach ($movable_keys as $logic_key) {
                     $sunday_name = $logic_key_name_map[$logic_key] ?? oflc_humanize_logic_key($logic_key);
                     $sunday_service_option_choices[$logic_key] = [
                         'logic_key' => $logic_key,
@@ -1910,8 +1919,12 @@ include 'includes/header.php';
 <?php endif; ?>
 </div>
 
-<script src="js/service-observance.js"></script>
-<script src="js/service-observance-dropdown.js"></script>
+<?php
+$service_observance_js_version = filemtime(__DIR__ . '/js/service-observance.js') ?: time();
+$service_observance_dropdown_js_version = filemtime(__DIR__ . '/js/service-observance-dropdown.js') ?: time();
+?>
+<script src="js/service-observance.js?v=<?php echo rawurlencode((string) $service_observance_js_version); ?>"></script>
+<script src="js/service-observance-dropdown.js?v=<?php echo rawurlencode((string) $service_observance_dropdown_js_version); ?>"></script>
 <script>
 if (window.location.search && /(?:^|[?&])added_service=1(?:&|$)/.test(window.location.search)) {
     window.history.replaceState({}, '', 'add-service.php');
@@ -3766,8 +3779,7 @@ window.oflcInitializePlannerUI = function (root) {
         var observanceName = String(observanceInput.value || '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
         var serviceSettingId = serviceSettingDetail && serviceSettingDetail.id ? parseInt(serviceSettingDetail.id, 10) : 0;
         var hasSelectedService = serviceSettingId > 0;
-        var preferredOptions = [];
-        var fallbackOptions = [];
+        var matchingOptions = [];
         var labelsSeen = {};
 
         if (!fillHymnsLabelInput || !fillHymnsIdInput) {
@@ -3785,20 +3797,16 @@ window.oflcInitializePlannerUI = function (root) {
                     || (observanceName !== '' && templateName === observanceName);
                 var serviceMatches = templateSettingId === serviceSettingId;
 
-                if (observanceMatches) {
+                if (observanceMatches && serviceMatches) {
                     if (!labelsSeen[String(template.label || '').toLowerCase()]) {
                         labelsSeen[String(template.label || '').toLowerCase()] = true;
-                        if (serviceMatches) {
-                            preferredOptions.push(template);
-                        } else {
-                            fallbackOptions.push(template);
-                        }
+                        matchingOptions.push(template);
                     }
                 }
             });
         }
 
-        matchingHymnFillTemplates = preferredOptions.concat(fallbackOptions);
+        matchingHymnFillTemplates = matchingOptions;
         if (currentSelectedId !== '' && matchingHymnFillTemplates.some(function (template) {
             return String(template && template.id ? template.id : '') === currentSelectedId;
         })) {

@@ -1264,7 +1264,16 @@ function oflc_update_group_schedule_services(array $services): array
             && $weekdayPair === ['0', '4'];
         $thursdayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '4' ? $lastService : $service;
         $sundayService = $lastDate instanceof DateTimeImmutable && $lastDate->format('w') === '0' ? $lastService : $service;
+        $sameObservance = (int) ($thursdayService['liturgical_calendar_id'] ?? 0) > 0
+            && (int) ($thursdayService['liturgical_calendar_id'] ?? 0) === (int) ($sundayService['liturgical_calendar_id'] ?? 0);
+        $datesCanPair = $isThursdaySundayPair
+            && oflc_can_pair_thursday_sunday_services(
+                $lastDate->format('w') === '4' ? $lastDate : $currentDate,
+                $lastDate->format('w') === '0' ? $lastDate : $currentDate
+            );
         $isLinkedPair = $isThursdaySundayPair
+            && $sameObservance
+            && $datesCanPair
             && (int) ($thursdayService['copied_from_service_id'] ?? 0) === (int) ($sundayService['id'] ?? 0);
 
         if ($isLinkedPair) {
@@ -1326,6 +1335,19 @@ function oflc_update_build_pair_candidate_lookup(array $services): array
 
         $candidateDateObject = oflc_update_get_service_date_object($candidate);
         if (!$candidateDateObject instanceof DateTimeImmutable || $candidateDateObject->format('w') === $weekday) {
+            continue;
+        }
+
+        $thursdayDate = $weekday === '4' ? $dateObject : $candidateDateObject;
+        $sundayDate = $weekday === '0' ? $dateObject : $candidateDateObject;
+        $serviceObservanceId = (int) ($service['liturgical_calendar_id'] ?? 0);
+        $candidateObservanceId = (int) ($candidate['liturgical_calendar_id'] ?? 0);
+        if (
+            !oflc_can_pair_thursday_sunday_services($thursdayDate, $sundayDate)
+            || $serviceObservanceId <= 0
+            || $candidateObservanceId <= 0
+            || $serviceObservanceId !== $candidateObservanceId
+        ) {
             continue;
         }
 
@@ -1960,6 +1982,23 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         }
     }
 
+    if ($isPairEditor && $currentCopyState && $serviceDateObject instanceof DateTimeImmutable) {
+        $submittedWeekday = $serviceDateObject->format('w');
+        $submittedThursdayDate = $submittedWeekday === '4'
+            ? $serviceDateObject
+            : $serviceDateObject->modify('-3 days');
+        $submittedSundayDate = $submittedWeekday === '0'
+            ? $serviceDateObject
+            : $serviceDateObject->modify('+3 days');
+
+        if (
+            !in_array($submittedWeekday, ['0', '4'], true)
+            || !oflc_can_pair_thursday_sunday_services($submittedThursdayDate, $submittedSundayDate)
+        ) {
+            $errors[] = 'Thursday and Sunday cannot be combined when Thursday has its own observance.';
+        }
+    }
+
     if ($isPairEditor) {
         $targetServiceIds = $originalCopyState || $shouldLinkPair || $shouldUnlinkPair
             ? [$pairThursdayId, $pairSundayId]
@@ -2527,9 +2566,12 @@ include 'includes/header.php';
                         if (!$showPreviousThursdayToggle && is_array($displayService)) {
                             $displayDateObject = oflc_update_get_service_date_object($displayService);
                             if ($displayDateObject instanceof DateTimeImmutable && $displayDateObject->format('w') === '0') {
-                                $showPreviousThursdayToggle = true;
-                                $originalCopyToPreviousThursday = false;
-                                $sundayService = $displayService;
+                                $thursdayDateObject = $displayDateObject->modify('-3 days');
+                                if (oflc_can_pair_thursday_sunday_services($thursdayDateObject, $displayDateObject)) {
+                                    $showPreviousThursdayToggle = true;
+                                    $originalCopyToPreviousThursday = false;
+                                    $sundayService = $displayService;
+                                }
                             }
                         }
                         $defaultSettingDetail = isset($serviceSettingsById[(string) ($displayService['service_setting_id'] ?? '')])
@@ -2940,8 +2982,12 @@ include 'includes/header.php';
 </script>
 </div>
 
-<script src="js/service-observance.js"></script>
-<script src="js/service-observance-dropdown.js"></script>
+<?php
+$serviceObservanceJsVersion = filemtime(__DIR__ . '/js/service-observance.js') ?: time();
+$serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observance-dropdown.js') ?: time();
+?>
+<script src="js/service-observance.js?v=<?php echo rawurlencode((string) $serviceObservanceJsVersion); ?>"></script>
+<script src="js/service-observance-dropdown.js?v=<?php echo rawurlencode((string) $serviceObservanceDropdownJsVersion); ?>"></script>
 <script>
 (function () {
     var hymnLookupByKey = <?php echo json_encode($allHymnCatalog['lookup_by_key'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
@@ -5036,8 +5082,7 @@ include 'includes/header.php';
             var observanceName = String(observanceNameInput && observanceNameInput.value ? observanceNameInput.value : '').trim().replace(/\s+\((?:Sa|[SMTWRF])\s+\d{1,2}(?:\/\d{1,2})?\)\s*$/, '').trim().toLowerCase();
             var serviceSettingId = serviceSettingDetail && serviceSettingDetail.id ? parseInt(serviceSettingDetail.id, 10) : 0;
             var hasSelectedService = serviceSettingId > 0;
-            var preferredOptions = [];
-            var fallbackOptions = [];
+            var matchingOptions = [];
             var labelsSeen = {};
 
             if (!fillHymnsLabelInput || !fillHymnsIdInput) {
@@ -5058,20 +5103,16 @@ include 'includes/header.php';
                         || (observanceName !== '' && templateName === observanceName);
                     var serviceMatches = templateSettingId === serviceSettingId;
 
-                    if (!observanceMatches || templateId === currentServiceId || labelsSeen[templateLabelKey] || !Array.isArray(template && template.usage_rows) || template.usage_rows.length === 0) {
+                    if (!observanceMatches || !serviceMatches || templateId === currentServiceId || labelsSeen[templateLabelKey] || !Array.isArray(template && template.usage_rows) || template.usage_rows.length === 0) {
                         return;
                     }
 
                     labelsSeen[templateLabelKey] = true;
-                    if (serviceMatches) {
-                        preferredOptions.push(template);
-                    } else {
-                        fallbackOptions.push(template);
-                    }
+                    matchingOptions.push(template);
                 });
             }
 
-            matchingHymnFillTemplates = preferredOptions.concat(fallbackOptions);
+            matchingHymnFillTemplates = matchingOptions;
             if (currentSelectedId !== '' && matchingHymnFillTemplates.some(function (template) {
                 return String(template && template.id ? template.id : '') === currentSelectedId;
             })) {

@@ -397,6 +397,7 @@ function oflc_service_db_fetch_hymn_fill_templates(
             s.copied_from_service_id,
             lc.name AS observance_name,
             lc.logic_key AS observance_logic_key,
+            ss.setting_name AS service_setting_name,
             hu.hymn_id,
             hu.sort_order,
             hs.slot_name,
@@ -407,6 +408,8 @@ function oflc_service_db_fetch_hymn_fill_templates(
          FROM service_db s
          LEFT JOIN liturgical_calendar lc
             ON lc.id = s.liturgical_calendar_id
+         LEFT JOIN service_settings_db ss
+            ON ss.id = s.service_setting_id
          LEFT JOIN hymn_usage_db hu
             ON hu.sunday_id = s.id
            AND hu.is_active = 1
@@ -429,6 +432,13 @@ function oflc_service_db_fetch_hymn_fill_templates(
             $serviceDate = trim((string) ($row['service_date'] ?? ''));
             $serviceYear = $serviceDate !== '' ? substr($serviceDate, 0, 4) : '';
             $observanceName = trim((string) ($row['observance_name'] ?? ''));
+            $serviceSettingName = trim((string) ($row['service_setting_name'] ?? ''));
+            $labelParts = array_values(array_filter([
+                trim($observanceName . ' ' . $serviceYear),
+                $serviceSettingName,
+            ], static function (string $value): bool {
+                return $value !== '';
+            }));
 
             $templates[$serviceId] = [
                 'id' => $serviceId,
@@ -437,7 +447,8 @@ function oflc_service_db_fetch_hymn_fill_templates(
                 'liturgical_calendar_id' => (int) ($row['liturgical_calendar_id'] ?? 0),
                 'observance_name' => $observanceName,
                 'observance_logic_key' => trim((string) ($row['observance_logic_key'] ?? '')),
-                'label' => trim($observanceName . ' ' . $serviceYear),
+                'service_setting_name' => $serviceSettingName,
+                'label' => implode(' — ', $labelParts),
                 'usage_rows' => [],
             ];
         }
@@ -1102,10 +1113,8 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
                 $logicKeysForNames[] = $logicKey;
             }
 
-            if ($entry['is_sunday']) {
-                foreach (oflc_resolve_movable_logic_keys($entry['week'], 0) as $logicKey) {
-                    $logicKeysForNames[] = $logicKey;
-                }
+            foreach (oflc_resolve_movable_logic_keys($entry['week'], (int) $entry['weekday']) as $logicKey) {
+                $logicKeysForNames[] = $logicKey;
             }
         }
 
@@ -1115,7 +1124,11 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
 
         foreach ($window['entries'] as $entry) {
             $weekdayDate = DateTimeImmutable::createFromFormat('Y-m-d', $entry['date']);
+            $movableKeys = oflc_resolve_movable_logic_keys($entry['week'], (int) $entry['weekday']);
             $festivalKeys = oflc_get_liturgical_entry_fixed_logic_keys($entry);
+            if (!$entry['is_sunday']) {
+                $festivalKeys = array_values(array_unique(array_merge($movableKeys, $festivalKeys)));
+            }
             foreach ($festivalKeys as $logicKey) {
                 $festivalMatches = oflc_service_db_fetch_observances_by_logic_keys($pdo, [$logicKey]);
                 $festivalObservanceId = (int) ($festivalMatches[0]['id'] ?? 0);
@@ -1136,8 +1149,7 @@ function oflc_update_build_service_option_data(PDO $pdo, string $selectedDate, s
             }
 
             if ($entry['is_sunday']) {
-                $sundayKeys = oflc_resolve_movable_logic_keys($entry['week'], 0);
-                foreach ($sundayKeys as $logicKey) {
+                foreach ($movableKeys as $logicKey) {
                     $sundayName = $logicKeyNameMap[$logicKey] ?? oflc_update_humanize_logic_key($logicKey);
                     $sundayChoices[$logicKey] = [
                         'logic_key' => $logicKey,
