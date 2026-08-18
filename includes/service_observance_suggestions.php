@@ -27,6 +27,9 @@ function oflc_service_index_observance_details_by_logic_key(array $details): arr
         }
 
         $logicKey = trim((string) ($detail['observance']['logic_key'] ?? ''));
+        if ($logicKey !== '' && function_exists('oflc_service_db_normalize_logic_key')) {
+            $logicKey = oflc_service_db_normalize_logic_key($logicKey);
+        }
         if ($logicKey === '' || isset($indexed[$logicKey])) {
             continue;
         }
