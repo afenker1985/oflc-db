@@ -733,7 +733,9 @@ function oflc_build_hymn_field_definitions($selected_service_setting_detail, arr
         ];
     }
 
-    for ($index = 1; $index <= 8; $index++) {
+    $generic_hymn_count = oflc_hymn_layout_get_generic_hymn_count($abbreviation);
+
+    for ($index = 1; $index <= $generic_hymn_count; $index++) {
         $definitions[] = [
             'index' => $index,
             'label' => $slot_label('Other Hymn', 'Other Hymn') . ' ' . $index,

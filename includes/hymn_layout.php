@@ -1,6 +1,14 @@
 <?php
 declare(strict_types=1);
 
+function oflc_hymn_layout_get_generic_hymn_count(string $serviceSettingAbbreviation): int
+{
+    // Lessons and Carols has eleven hymns in its standard order. Keeping the
+    // full service layout as base rows prevents its saved/template hymns from
+    // being mistaken for user-added Other Hymn rows.
+    return trim($serviceSettingAbbreviation) === 'Lessons and Carols' ? 11 : 8;
+}
+
 function oflc_hymn_layout_get_mode(array $definitions): string
 {
     $slotNames = array_values(array_filter(array_map(static function (array $definition): string {

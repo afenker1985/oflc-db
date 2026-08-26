@@ -957,7 +957,9 @@ function oflc_update_build_hymn_field_definitions(?array $serviceSettingDetail, 
         ];
     }
 
-    for ($index = 1; $index <= 8; $index++) {
+    $genericHymnCount = oflc_hymn_layout_get_generic_hymn_count($abbreviation);
+
+    for ($index = 1; $index <= $genericHymnCount; $index++) {
         $definitions[] = [
             'index' => $index,
             'label' => $slotLabel('Other Hymn', 'Other Hymn') . ' ' . $index,
@@ -1057,7 +1059,6 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
         if ($targetIndex !== null && isset($state['hymns'][$targetIndex]) && $state['hymns'][$targetIndex] === '') {
             $state['hymns'][$targetIndex] = $label;
             $state['stanzas'][$targetIndex] = oflc_update_normalize_stanza_text($row['stanzas'] ?? '');
-            $state['order'][] = 'base:' . $targetIndex;
             continue;
         }
 
