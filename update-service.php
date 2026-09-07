@@ -1034,7 +1034,7 @@ function oflc_update_build_hymn_editor_state(array $definitions, array $usageRow
     ];
     $slotOccurrenceCounts = [];
     $definitionCount = count($definitions);
-    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && count($usageRows) <= $definitionCount;
+    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && (oflc_hymn_layout_get_mode($definitions) === 'generic' || count($usageRows) <= $definitionCount);
 
     foreach ($usageRows as $row) {
         $slotName = oflc_update_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
@@ -1689,9 +1689,7 @@ if ($requestMethod === 'POST' && isset($_POST['preview_update_service'])) {
             'link_action' => oflc_update_request_value($_POST, 'link_action'),
         ];
 
-        for ($hymnIndex = 1; $hymnIndex <= 8; $hymnIndex++) {
-            $submittedState['selected_hymns'][$hymnIndex] = oflc_update_request_value($_POST, 'hymn_' . $hymnIndex);
-        }
+        $submittedState['selected_hymns'] = oflc_hymn_layout_read_submitted_hymns($_POST);
 
         if ($submittedState['selected_passion_reading_ids'] === [] && $submittedState['selected_passion_reading_id'] !== '') {
             $submittedState['selected_passion_reading_ids'][] = $submittedState['selected_passion_reading_id'];
@@ -1747,9 +1745,7 @@ if ($requestMethod === 'POST' && isset($_POST['update_service']) && !isset($_POS
         'link_action' => oflc_update_request_value($_POST, 'link_action'),
     ];
 
-    for ($hymnIndex = 1; $hymnIndex <= 8; $hymnIndex++) {
-        $submittedState['selected_hymns'][$hymnIndex] = oflc_update_request_value($_POST, 'hymn_' . $hymnIndex);
-    }
+    $submittedState['selected_hymns'] = oflc_hymn_layout_read_submitted_hymns($_POST);
 
     $formStateByServiceId[$serviceId] = $submittedState;
     if ($submittedState['selected_passion_reading_ids'] === [] && $submittedState['selected_passion_reading_id'] !== '') {
@@ -4278,7 +4274,8 @@ $serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observanc
             var canRepairOtherHymnRowsByPosition = Array.isArray(definitions)
                 && definitions.length > 0
                 && Array.isArray(usageRows)
-                && usageRows.length <= definitions.length;
+                && (definitions.every(function (definition) { return definition.slot_name === 'Other Hymn'; })
+                    || usageRows.length <= definitions.length);
 
             Array.prototype.forEach.call(definitions || [], function (definition) {
                 var definitionIndex = parseInt(definition && definition.index ? definition.index : '0', 10) || 0;
@@ -5892,6 +5889,11 @@ $serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observanc
         var reapplySearchFilter = !(options && options.reapplySearchFilter === false);
         var unhideRows = !!(options && options.unhideRows);
 
+        // The user may have continued typing while the full service list loaded.
+        if (options && options.preserveCurrentSearchValue && searchInput) {
+            preservedSearchValue = String(searchInput.value || '');
+        }
+
         if (!nextRoot || !currentRoot) {
             window.location.href = url;
             return;
@@ -5910,7 +5912,7 @@ $serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observanc
                 row.hidden = false;
             });
         }
-        if (searchInput && preservedSearchValue !== '') {
+        if (searchInput && (preservedSearchValue !== '' || (options && options.preserveCurrentSearchValue))) {
             searchInput.value = preservedSearchValue;
             if (reapplySearchFilter) {
                 applySearchFilter();
@@ -6496,14 +6498,12 @@ $serviceObservanceDropdownJsVersion = filemtime(__DIR__ . '/js/service-observanc
         searchInput.setAttribute('data-update-service-search-bound', '1');
 
         function clearFiltersForSearch() {
-            var rawValue = String(searchInput.value || '');
-
             if (!hasActiveRangeFilter()) {
                 return;
             }
 
             requestUpdateService(buildSearchResultsUrl(), {
-                preserveSearchValue: rawValue,
+                preserveCurrentSearchValue: true,
                 preserveSearchFocus: true
             });
         }

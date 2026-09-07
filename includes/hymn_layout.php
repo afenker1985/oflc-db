@@ -3,10 +3,23 @@ declare(strict_types=1);
 
 function oflc_hymn_layout_get_generic_hymn_count(string $serviceSettingAbbreviation): int
 {
-    // Lessons and Carols has eleven hymns in its standard order. Keeping the
+    // Lessons and Carols has ten hymns in its standard order. Keeping the
     // full service layout as base rows prevents its saved/template hymns from
     // being mistaken for user-added Other Hymn rows.
-    return trim($serviceSettingAbbreviation) === 'Lessons and Carols' ? 11 : 8;
+    return trim($serviceSettingAbbreviation) === 'Lessons and Carols' ? 10 : 8;
+}
+
+// Collect every submitted base hymn; the selected layout determines which rows are saved.
+function oflc_hymn_layout_read_submitted_hymns(array $request): array
+{
+    $hymns = [];
+    foreach ($request as $key => $value) {
+        if (preg_match('/^hymn_([1-9][0-9]*)$/', (string) $key, $matches) && is_scalar($value)) {
+            $hymns[(int) $matches[1]] = trim((string) $value);
+        }
+    }
+
+    return $hymns;
 }
 
 function oflc_hymn_layout_get_mode(array $definitions): string

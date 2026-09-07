@@ -437,7 +437,7 @@ function oflc_build_hymn_editor_state(array $definitions, array $usageRows): arr
     ];
     $slotOccurrenceCounts = [];
     $definitionCount = count($definitions);
-    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && count($usageRows) <= $definitionCount;
+    $canRepairOtherHymnRowsByPosition = $definitionCount > 0 && (oflc_hymn_layout_get_mode($definitions) === 'generic' || count($usageRows) <= $definitionCount);
 
     foreach ($usageRows as $row) {
         $slotName = oflc_normalize_hymn_slot_name(trim((string) ($row['slot_name'] ?? '')));
@@ -925,9 +925,7 @@ foreach ($active_observance_details as $observance_id => $detail) {
     }
 }
 
-for ($hymn_index = 1; $hymn_index <= 8; $hymn_index++) {
-    $selected_hymns[$hymn_index] = oflc_request_value($request_data, 'hymn_' . $hymn_index);
-}
+$selected_hymns = oflc_hymn_layout_read_submitted_hymns($request_data);
 
 $logic_columns_ready = oflc_service_db_planning_logic_columns_ready($pdo);
 
@@ -2945,7 +2943,8 @@ window.oflcInitializePlannerUI = function (root) {
         var canRepairOtherHymnRowsByPosition = Array.isArray(definitions)
             && definitions.length > 0
             && Array.isArray(usageRows)
-            && usageRows.length <= definitions.length;
+            && (definitions.every(function (definition) { return definition.slot_name === 'Other Hymn'; })
+                    || usageRows.length <= definitions.length);
 
         Array.prototype.forEach.call(definitions || [], function (definition) {
             var definitionIndex = parseInt(definition && definition.index ? definition.index : '0', 10) || 0;
